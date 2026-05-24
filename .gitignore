@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env.local
+.env.*.local
+*.local
+coverage/
+.DS_Store
+
+# データ移行の中間ファイル（機密データを含む可能性あり）
+scripts/gas_export.json

@@ -1,0 +1,415 @@
+<script setup lang="ts">
+import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+import { useSkewersStore } from '@/stores/skewers'
+import { useSettingsStore } from '@/stores/settings'
+import { useDailyLogStore } from '@/stores/dailyLog'
+import { calcPrep, calcTotalSkewers } from '@/composables/useInventoryCalc'
+import { notifyDailyReport } from '@/composables/useLineNotify'
+import StepperInput from '@/components/StepperInput.vue'
+import ConfirmModal from '@/components/ConfirmModal.vue'
+import type { DailyInputForm, SkewerCategory } from '@/types'
+
+const router = useRouter()
+const auth = useAuthStore()
+const skewersStore = useSkewersStore()
+const settingsStore = useSettingsStore()
+const dailyLogStore = useDailyLogStore()
+
+const loading = ref(true)
+const loadError = ref('')
+const submitting = ref(false)
+const submitError = ref('')
+const showConfirm = ref(false)
+const draftRestored = ref(false)
+const lineWarning = ref('')
+const savedOk = ref(false)
+
+// 入力フォーム
+const form = reactive<DailyInputForm>({
+  staffName: '',
+  courseCasual: 0,
+  courseStandard: 0,
+  coursePremium: 0,
+  extraSkewers: 0,
+  totalSales: 0,
+  drinkRatio: 0,
+  memo: '',
+  skewerInputs: {},
+})
+
+// カテゴリ表示順（副産物は入力対象外）
+const CATEGORY_ORDER: SkewerCategory[] = [
+  'レギュラー',
+  'スペシャル',
+  'つくね',
+  '前日仕込み',
+  'その他仕込み',
+]
+
+const inputSkewers = computed(() =>
+  skewersStore.skewers.filter((s) => s.category !== '副産物'),
+)
+
+const groupedSkewers = computed(() =>
+  CATEGORY_ORDER.map((category) => ({
+    category,
+    items: inputSkewers.value.filter((s) => s.category === category),
+  })).filter((g) => g.items.length > 0),
+)
+
+// 翌日が日曜か
+const tomorrowIsSunday = computed(() => {
+  const t = new Date()
+  t.setDate(t.getDate() + 1)
+  return t.getDay() === 0
+})
+
+// 合計串本数（自動計算）
+const totalSkewers = computed(() => {
+  const s = settingsStore.settings
+  if (!s) return 0
+  return calcTotalSkewers(
+    {
+      casual: form.courseCasual,
+      standard: form.courseStandard,
+      premium: form.coursePremium,
+      extra: form.extraSkewers,
+    },
+    {
+      casual: s.course_casual_skewers,
+      standard: s.course_standard_skewers,
+      premium: s.course_premium_skewers,
+    },
+  )
+})
+
+/** カテゴリごとの入力単位ラベル */
+function unitLabel(category: SkewerCategory): string {
+  if (category === 'レギュラー' || category === '前日仕込み') return 'P'
+  if (category === 'つくね') return 'B'
+  return '本'
+}
+
+onMounted(async () => {
+  loading.value = true
+  loadError.value = ''
+  try {
+    await Promise.all([skewersStore.fetchActive(), settingsStore.fetchSettings()])
+    if (skewersStore.error) throw new Error(skewersStore.error)
+    if (settingsStore.error) throw new Error(settingsStore.error)
+
+    form.staffName = auth.appUser?.name ?? auth.displayName
+
+    // 下書き復元
+    const draft = dailyLogStore.loadDraft()
+    if (draft) {
+      form.courseCasual = draft.courseCasual
+      form.courseStandard = draft.courseStandard
+      form.coursePremium = draft.coursePremium
+      form.extraSkewers = draft.extraSkewers
+      form.totalSales = draft.totalSales
+      form.drinkRatio = draft.drinkRatio
+      form.memo = draft.memo
+      draftRestored.value = true
+    }
+
+    // 串入力の初期化（下書きがあれば引き継ぐ）
+    for (const s of inputSkewers.value) {
+      form.skewerInputs[s.id] = draft?.skewerInputs?.[s.id] ?? {
+        value: 0,
+        isKombu: false,
+        isPreparing: false,
+      }
+    }
+
+    // 下書き自動保存（初期化後に開始）
+    watch(form, () => dailyLogStore.saveDraft(form), { deep: true })
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : '読み込みに失敗しました'
+  } finally {
+    loading.value = false
+  }
+})
+
+async function handleSubmit() {
+  showConfirm.value = false
+  submitting.value = true
+  submitError.value = ''
+  lineWarning.value = ''
+  try {
+    const s = settingsStore.settings
+    const tenantId = auth.appUser?.tenant_id
+    if (!s || !tenantId) throw new Error('設定の読み込みが完了していません')
+
+    // Supabase に保存
+    const { stockRows } = await dailyLogStore.submitDailyReport(
+      { ...form },
+      {
+        tenantId,
+        skewers: skewersStore.skewers,
+        perCourse: {
+          casual: s.course_casual_skewers,
+          standard: s.course_standard_skewers,
+          premium: s.course_premium_skewers,
+        },
+      },
+    )
+    savedOk.value = true
+
+    // 仕込み計算（GAS submitDailyReport と同様、当日の getDay() を渡す）
+    const stockMap: Record<string, number> = {}
+    const kombuFlags: Record<string, boolean> = {}
+    for (const r of stockRows) {
+      stockMap[r.skewerId] = r.stock
+      kombuFlags[r.skewerId] = r.is_kombu
+    }
+    const prepResults = calcPrep(skewersStore.skewers, stockMap, new Date().getDay(), {
+      sundayBoostEnabled: s.sunday_boost_enabled,
+      kombuFlags,
+    })
+
+    // LINE通知（Edge Function 経由・失敗してもアプリは止めない）
+    const lineRes = await notifyDailyReport({
+      prepResults,
+      report: {
+        totalSales: form.totalSales,
+        drinkRatio: form.drinkRatio,
+        courseCasual: form.courseCasual,
+        courseStandard: form.courseStandard,
+        coursePremium: form.coursePremium,
+        extraSkewers: form.extraSkewers,
+        totalSkewers: totalSkewers.value,
+        memo: form.memo,
+      },
+      staffName: form.staffName,
+    })
+
+    dailyLogStore.clearDraft()
+
+    if (lineRes.lineSent) {
+      // 送信完了後、仕込みダッシュボードへ自動遷移
+      router.push('/dashboard')
+    } else {
+      // 保存は成功・LINEのみ失敗 → 警告を表示し手動遷移
+      lineWarning.value = lineRes.lineError
+    }
+  } catch (e) {
+    submitError.value = e instanceof Error ? e.message : '送信に失敗しました'
+  } finally {
+    submitting.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="min-h-screen bg-app dark:bg-app-dark pb-28">
+    <!-- ヘッダー -->
+    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark px-4 py-4 sticky top-0 z-10">
+      <div class="max-w-lg mx-auto flex items-center gap-3 pr-12">
+        <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
+        <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">営業後入力</h1>
+      </div>
+    </header>
+
+    <main class="max-w-lg mx-auto px-4 py-5 space-y-5">
+      <p v-if="loading" class="text-center text-neutral-400 dark:text-neutral-500 py-12">読み込み中...</p>
+
+      <p v-else-if="loadError" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+        {{ loadError }}
+      </p>
+
+      <template v-else>
+        <!-- 日曜バナー -->
+        <div
+          v-if="tomorrowIsSunday"
+          class="bg-brand-500/15 text-brand-600 dark:text-brand-400 border border-brand-500/25 rounded-2xl px-4 py-3 text-sm font-semibold"
+        >
+          🛌 明日は日曜日 — 無理のない仕込みで
+        </div>
+
+        <!-- 下書き復元通知 -->
+        <p v-if="draftRestored" class="text-xs text-neutral-500 dark:text-neutral-400 bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-xl px-3 py-2">
+          前回の下書きを復元しました
+        </p>
+
+        <!-- 焼師 -->
+        <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3">
+          <span class="text-sm text-neutral-500 dark:text-neutral-400">焼師</span>
+          <span class="ml-2 font-semibold text-neutral-900 dark:text-neutral-50">{{ form.staffName || '—' }}</span>
+        </section>
+
+        <!-- 在庫入力 -->
+        <section
+          v-for="group in groupedSkewers"
+          :key="group.category"
+          class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
+        >
+          <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+            {{ group.category }}
+          </h2>
+          <ul class="divide-y divide-edge dark:divide-edge-dark">
+            <li
+              v-for="s in group.items"
+              :key="s.id"
+              class="px-4 py-3 flex items-center gap-3"
+            >
+              <div class="flex-1 min-w-0">
+                <p class="font-medium text-neutral-900 dark:text-neutral-100 truncate">{{ s.name }}</p>
+                <label
+                  v-if="s.category === '前日仕込み'"
+                  class="mt-1 inline-flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
+                >
+                  <input
+                    v-model="form.skewerInputs[s.id].isKombu"
+                    type="checkbox"
+                    class="rounded border-edge dark:border-[#3A3A3A] bg-white dark:bg-[#2A2A2A] text-brand-500 focus:ring-brand-500"
+                  />
+                  {{ s.prep_method_name || '昆布締め' }}済み
+                </label>
+              </div>
+
+              <!-- その他仕込み: 仕込み中チェックのみ -->
+              <label
+                v-if="s.category === 'その他仕込み'"
+                class="inline-flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-200"
+              >
+                <input
+                  v-model="form.skewerInputs[s.id].isPreparing"
+                  type="checkbox"
+                  class="w-5 h-5 rounded border-edge dark:border-[#3A3A3A] bg-white dark:bg-[#2A2A2A] text-brand-500 focus:ring-brand-500"
+                />
+                仕込み中
+              </label>
+
+              <!-- それ以外: ステッパー入力 -->
+              <div v-else class="flex items-center gap-1.5">
+                <StepperInput v-model="form.skewerInputs[s.id].value" />
+                <span class="text-sm text-neutral-500 dark:text-neutral-400 w-4">{{ unitLabel(s.category) }}</span>
+              </div>
+            </li>
+          </ul>
+        </section>
+
+        <!-- 売上データ -->
+        <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
+          <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">売上データ</h2>
+          <div class="divide-y divide-edge dark:divide-edge-dark">
+            <div class="px-4 py-3 flex items-center justify-between">
+              <span class="text-sm text-neutral-700 dark:text-neutral-200">カジュアル組数</span>
+              <StepperInput v-model="form.courseCasual" />
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between">
+              <span class="text-sm text-neutral-700 dark:text-neutral-200">スタンダード組数</span>
+              <StepperInput v-model="form.courseStandard" />
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between">
+              <span class="text-sm text-neutral-700 dark:text-neutral-200">プレミアム組数</span>
+              <StepperInput v-model="form.coursePremium" />
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between">
+              <span class="text-sm text-neutral-700 dark:text-neutral-200">追加串</span>
+              <div class="flex items-center gap-1.5">
+                <StepperInput v-model="form.extraSkewers" />
+                <span class="text-sm text-neutral-500 dark:text-neutral-400 w-4">本</span>
+              </div>
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between bg-brand-500/[0.04]">
+              <span class="text-sm font-medium text-neutral-700 dark:text-neutral-200">合計串本数</span>
+              <span class="text-3xl font-bold tabular-nums text-brand-500">
+                {{ totalSkewers }}<span class="text-sm text-neutral-400 dark:text-neutral-500 ml-1">本</span>
+              </span>
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between">
+              <label class="text-sm text-neutral-700 dark:text-neutral-200">総売上（円）</label>
+              <input
+                v-model.number="form.totalSales"
+                type="number"
+                inputmode="numeric"
+                min="0"
+                class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+              />
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between">
+              <label class="text-sm text-neutral-700 dark:text-neutral-200">ドリンク比率（%）</label>
+              <input
+                v-model.number="form.drinkRatio"
+                type="number"
+                inputmode="numeric"
+                min="0"
+                max="100"
+                class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+              />
+            </div>
+            <div class="px-4 py-3">
+              <label class="text-sm text-neutral-700 dark:text-neutral-200 block mb-1.5">メモ（任意）</label>
+              <textarea
+                v-model="form.memo"
+                rows="2"
+                class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
+                placeholder="今日どうだった？"
+              />
+            </div>
+          </div>
+        </section>
+
+        <!-- 送信エラー -->
+        <p v-if="submitError" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+          {{ submitError }}
+        </p>
+
+        <!-- 保存OK・LINEのみ失敗 -->
+        <div
+          v-if="savedOk && lineWarning"
+          class="bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20 rounded-2xl px-4 py-3 text-sm space-y-2"
+        >
+          <p>保存は完了しましたが、LINE通知に失敗しました。</p>
+          <p class="text-xs text-amber-600 dark:text-amber-400/80 break-all">{{ lineWarning }}</p>
+          <button
+            class="mt-1 w-full py-3 rounded-2xl bg-brand-500 hover:bg-brand-600 active:scale-95 transition-transform text-white font-semibold"
+            @click="router.push('/dashboard')"
+          >
+            仕込みダッシュボードへ
+          </button>
+        </div>
+      </template>
+    </main>
+
+    <!-- 送信バー（固定） -->
+    <div
+      v-if="!loading && !loadError && !(savedOk && lineWarning)"
+      class="fixed bottom-0 inset-x-0 bg-card dark:bg-card-dark border-t border-edge dark:border-edge-dark px-4 py-3"
+      style="padding-bottom: calc(0.75rem + env(safe-area-inset-bottom))"
+    >
+      <div class="max-w-lg mx-auto">
+        <button
+          type="button"
+          :disabled="submitting"
+          class="w-full py-4 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white font-semibold rounded-2xl active:scale-95 transition-transform"
+          @click="showConfirm = true"
+        >
+          確認して送信
+        </button>
+      </div>
+    </div>
+
+    <!-- 確認モーダル -->
+    <ConfirmModal
+      :open="showConfirm"
+      title="送信内容の確認"
+      confirm-label="送信する"
+      :busy="submitting"
+      @cancel="showConfirm = false"
+      @confirm="handleSubmit"
+    >
+      <ul class="space-y-1">
+        <li>焼師: {{ form.staffName }}</li>
+        <li>コース: C{{ form.courseCasual }} / S{{ form.courseStandard }} / P{{ form.coursePremium }}</li>
+        <li>合計串本数: {{ totalSkewers }}本</li>
+        <li>総売上: ¥{{ form.totalSales.toLocaleString() }}</li>
+      </ul>
+      <p class="mt-2 text-xs text-neutral-400 dark:text-neutral-500">送信するとLINEへ通知が送られます。</p>
+    </ConfirmModal>
+  </div>
+</template>
