@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase'
+import { extractFnError } from '@/lib/fn-error'
 import type { AppUser, UserInvitation, UserRole } from '@/types'
 
 /**
@@ -66,8 +67,7 @@ export const useUsersStore = defineStore('users', () => {
       body: { action: 'create_invitation', email, name, role },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await fetchInvitations()
   }
@@ -78,8 +78,7 @@ export const useUsersStore = defineStore('users', () => {
       body: { action: 'approve_invitation', invitation_id: invitationId },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await Promise.all([fetchAll(), fetchInvitations()])
   }
@@ -90,8 +89,7 @@ export const useUsersStore = defineStore('users', () => {
       body: { action: 'reject_invitation', invitation_id: invitationId, note },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await fetchInvitations()
   }
@@ -102,8 +100,7 @@ export const useUsersStore = defineStore('users', () => {
       body: { action: 'delete_user', user_id: userId },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await fetchAll()
   }
@@ -117,8 +114,7 @@ export const useUsersStore = defineStore('users', () => {
       body: { action: 'create_qr_invitation', role, tenant_id: tenantId },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     return data as { token: string; expires_at: string }
   }
@@ -129,8 +125,7 @@ export const useUsersStore = defineStore('users', () => {
       body: { action: 'reject_invitation', invitation_id: invitationId },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await fetchInvitations()
   }

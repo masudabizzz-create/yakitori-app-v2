@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase'
+import { extractFnError } from '@/lib/fn-error'
 import type { Tenant } from '@/types'
 
 /**
@@ -36,8 +37,7 @@ export const useTenantsStore = defineStore('tenants', () => {
       body: { action: 'create_tenant', name },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await fetchAll()
   }
@@ -48,8 +48,7 @@ export const useTenantsStore = defineStore('tenants', () => {
       body: { action: 'update_tenant', tenant_id: tenantId, name },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await fetchAll()
   }
@@ -60,8 +59,7 @@ export const useTenantsStore = defineStore('tenants', () => {
       body: { action: 'delete_tenant', tenant_id: tenantId },
     })
     if (err) {
-      const detail = (data as { error?: string } | null)?.error ?? err.message
-      throw new Error(detail)
+      throw new Error(await extractFnError(err, data))
     }
     await fetchAll()
   }

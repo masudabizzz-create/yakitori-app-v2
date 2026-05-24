@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { supabase } from '@/lib/supabase'
+import { extractFnError } from '@/lib/fn-error'
 import type { UserRole } from '@/types'
 
 const route = useRoute()
@@ -45,8 +46,7 @@ onMounted(async () => {
       body: { action: 'validate_token', token: token.value },
     })
     if (error) {
-      const detail = (data as { error?: string } | null)?.error ?? error.message
-      tokenErr.value = detail
+      tokenErr.value = await extractFnError(error, data)
     } else {
       invitationRole.value = (data as { role: UserRole }).role
       tenantName.value = (data as { tenant_name: string }).tenant_name
@@ -87,8 +87,7 @@ async function submit() {
       },
     })
     if (error) {
-      const detail = (data as { error?: string } | null)?.error ?? error.message
-      submitErr.value = detail
+      submitErr.value = await extractFnError(error, data)
     } else {
       success.value = true
     }
