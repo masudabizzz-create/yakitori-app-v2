@@ -180,13 +180,10 @@ Deno.serve(async (req) => {
       return json(404, { error: '招待が見つかりません（既に処理済みの可能性があります）' })
     }
 
-    // Supabase Auth ユーザーを作成（初期パスワードはランダム UUID → パスワードリセットメール推奨）
-    const tempPassword = crypto.randomUUID() + crypto.randomUUID()
-    const { data: newAuthUser, error: createErr } =
-      await supabaseAdmin.auth.admin.createUser({
-        email: inv.email,
-        password: tempPassword,
-        email_confirm: true, // メール確認をスキップ
+    // inviteUserByEmail で Auth ユーザーを作成 + 招待メールを自動送信
+    const { data: inviteData, error: createErr } =
+      await supabaseAdmin.auth.admin.inviteUserByEmail(inv.email, {
+        data: { name: inv.name },
       })
     if (createErr) {
       return json(500, { error: `Auth ユーザー作成失敗: ${createErr.message}` })
@@ -194,7 +191,7 @@ Deno.serve(async (req) => {
 
     // users テーブルに挿入
     const { error: insertErr } = await supabaseAdmin.from('users').insert({
-      id: newAuthUser.user.id,
+      id: inviteData.user.id,
       tenant_id: inv.tenant_id,
       name: inv.name,
       role: inv.role,
@@ -202,7 +199,7 @@ Deno.serve(async (req) => {
     })
     if (insertErr) {
       // ロールバック: Auth ユーザーを削除
-      await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id)
+      await supabaseAdmin.auth.admin.deleteUser(inviteData.user.id)
       return json(500, { error: `ユーザー登録失敗: ${insertErr.message}` })
     }
 
@@ -226,11 +223,11 @@ Deno.serve(async (req) => {
         `メール: ${inv.email}`,
         `役割: ${inv.role}`,
         `承認者: ${callerName}`,
-        '初回ログインにはパスワードリセットが必要です。',
+        '招待メールを送信しました。メール内のリンクからパスワードを設定してください。',
       ].join('\n'),
     )
 
-    return json(200, { success: true, userId: newAuthUser.user.id })
+    return json(200, { success: true, userId: inviteData.user.id })
   }
 
   // ============================================================
