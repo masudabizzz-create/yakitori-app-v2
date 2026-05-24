@@ -108,6 +108,33 @@ export const useUsersStore = defineStore('users', () => {
     await fetchAll()
   }
 
+  /** QRコード招待を発行する（manage-users Edge Function 経由） */
+  async function createQrInvitation(
+    role: UserRole,
+    tenantId?: string,
+  ): Promise<{ token: string; expires_at: string }> {
+    const { data, error: err } = await supabase.functions.invoke('manage-users', {
+      body: { action: 'create_qr_invitation', role, tenant_id: tenantId },
+    })
+    if (err) {
+      const detail = (data as { error?: string } | null)?.error ?? err.message
+      throw new Error(detail)
+    }
+    return data as { token: string; expires_at: string }
+  }
+
+  /** QRトークンを無効化する */
+  async function revokeQrInvitation(invitationId: string): Promise<void> {
+    const { data, error: err } = await supabase.functions.invoke('manage-users', {
+      body: { action: 'reject_invitation', invitation_id: invitationId },
+    })
+    if (err) {
+      const detail = (data as { error?: string } | null)?.error ?? err.message
+      throw new Error(detail)
+    }
+    await fetchInvitations()
+  }
+
   return {
     users,
     invitations,
@@ -120,5 +147,7 @@ export const useUsersStore = defineStore('users', () => {
     approveInvitation,
     rejectInvitation,
     deleteUser,
+    createQrInvitation,
+    revokeQrInvitation,
   }
 })

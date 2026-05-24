@@ -2,14 +2,19 @@
 //
 // スタッフ・店舗管理 Edge Function
 //
-// 対応アクション:
-//   create_invitation  - スタッフ招待（pending 状態で登録）
-//   approve_invitation - 招待を承認（Auth ユーザー作成 + LINE通知）
-//   reject_invitation  - 招待を拒否
-//   delete_user        - スタッフ削除（Auth ユーザー削除 → CASCADE）
+// 【認証不要（公開）アクション】
+//   validate_token     - QRトークンの有効性確認
+//   register_with_token - QRトークンで自己登録
+//
+// 【認証必須アクション】
+//   create_qr_invitation - QRコード招待を発行
+//   create_invitation   - スタッフ招待（メール方式・旧フロー）
+//   approve_invitation  - 招待を承認（旧フロー）
+//   reject_invitation   - 招待を拒否 / QRトークン無効化
+//   delete_user        - スタッフ削除
 //   create_tenant      - 新店舗作成
 //   update_tenant      - 店舗名更新
-//   delete_tenant      - 店舗削除（スタッフがいない場合のみ）
+//   delete_tenant      - 店舗削除
 //
 // service_role を使用して RLS をバイパスするため、Edge Function 経由のみで実行する。
 
@@ -39,12 +44,6 @@ Deno.serve(async (req) => {
     return json(405, { error: 'Method not allowed' })
   }
 
-  // JWT を取得
-  const authHeader = req.headers.get('Authorization') ?? ''
-  if (!authHeader.startsWith('Bearer ')) {
-    return json(401, { error: 'Missing Authorization header' })
-  }
-
   // リクエストボディ解析
   let payload: Record<string, unknown>
   try {
@@ -56,6 +55,120 @@ Deno.serve(async (req) => {
   const { action } = payload
   if (typeof action !== 'string') {
     return json(400, { error: 'action は必須です' })
+  }
+
+  // service_role クライアント（全アクションで使用）
+  const supabaseAdmin = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    { auth: { persistSession: false, autoRefreshToken: false } },
+  )
+
+  // ============================================================
+  // validate_token — 公開: QRトークンの有効性を確認
+  // ============================================================
+  if (action === 'validate_token') {
+    const { token } = payload
+    if (!token) return json(400, { error: 'token は必須です' })
+
+    const { data: inv, error: invErr } = await supabaseAdmin
+      .from('user_invitations')
+      .select('id, role, expires_at, tenant_id, tenants(name)')
+      .eq('token', token)
+      .eq('status', 'pending')
+      .maybeSingle()
+
+    if (invErr || !inv) {
+      return json(404, { error: '無効なQRコードです（期限切れまたは使用済み）' })
+    }
+    if (inv.expires_at && new Date(inv.expires_at as string) < new Date()) {
+      return json(400, { error: 'QRコードの有効期限が切れています' })
+    }
+
+    return json(200, {
+      role: inv.role,
+      tenant_name: (inv.tenants as { name: string } | null)?.name ?? '',
+      expires_at: inv.expires_at,
+    })
+  }
+
+  // ============================================================
+  // register_with_token — 公開: QRトークンで自己登録
+  // ============================================================
+  if (action === 'register_with_token') {
+    const { token, email, name, password } = payload
+    if (!token || !email || !name || !password) {
+      return json(400, { error: 'token, email, name, password は必須です' })
+    }
+
+    // トークン検証
+    const { data: inv, error: invErr } = await supabaseAdmin
+      .from('user_invitations')
+      .select('*')
+      .eq('token', token)
+      .eq('status', 'pending')
+      .maybeSingle()
+
+    if (invErr || !inv) {
+      return json(404, { error: '無効なQRコードです（期限切れまたは使用済み）' })
+    }
+    if (inv.expires_at && new Date(inv.expires_at as string) < new Date()) {
+      return json(400, { error: 'QRコードの有効期限が切れています' })
+    }
+
+    // メール重複チェック
+    const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+    const emailExists = existingUsers?.users?.some(
+      (u) => u.email?.toLowerCase() === (email as string).toLowerCase(),
+    )
+    if (emailExists) {
+      return json(400, { error: 'このメールアドレスはすでに登録されています' })
+    }
+
+    // Auth ユーザーを作成（email_confirm: false → 確認メール送信）
+    const { data: newAuthUser, error: createErr } =
+      await supabaseAdmin.auth.admin.createUser({
+        email: email as string,
+        password: password as string,
+        email_confirm: false,
+      })
+    if (createErr) {
+      return json(500, { error: `ユーザー作成失敗: ${createErr.message}` })
+    }
+
+    // users テーブルに挿入
+    const { error: insertErr } = await supabaseAdmin.from('users').insert({
+      id: newAuthUser.user.id,
+      tenant_id: inv.tenant_id,
+      name: name,
+      role: inv.role,
+      is_active: true,
+    })
+    if (insertErr) {
+      await supabaseAdmin.auth.admin.deleteUser(newAuthUser.user.id)
+      return json(500, { error: `ユーザー登録失敗: ${insertErr.message}` })
+    }
+
+    // トークンを使用済みに更新
+    await supabaseAdmin
+      .from('user_invitations')
+      .update({
+        status: 'used',
+        email: email,
+        name: name,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', inv.id)
+
+    return json(200, { success: true })
+  }
+
+  // ============================================================
+  // 以降のアクションはすべて JWT 認証が必要
+  // ============================================================
+  const authHeader = req.headers.get('Authorization') ?? ''
+  if (!authHeader.startsWith('Bearer ')) {
+    return json(401, { error: 'Missing Authorization header' })
   }
 
   // 呼び出し元 JWT で Supabase クライアント（RLS 有効）
@@ -88,15 +201,37 @@ Deno.serve(async (req) => {
   const callerName = caller.name as string
   const isAdmin = ADMIN_ROLES.includes(callerRole)
 
-  // service_role クライアント（RLS バイパス）
-  const supabaseAdmin = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  )
+  // ============================================================
+  // create_qr_invitation — QRコード招待を発行
+  // ============================================================
+  if (action === 'create_qr_invitation') {
+    if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
+    const { role, tenant_id } = payload
+    if (!role) return json(400, { error: 'role は必須です' })
+
+    const targetTenantId = (tenant_id as string | undefined) ?? callerTenantId
+    const token = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+    const { data, error } = await supabaseAdmin
+      .from('user_invitations')
+      .insert({
+        tenant_id: targetTenantId,
+        role,
+        status: 'pending',
+        created_by: authData.user.id,
+        token,
+        expires_at: expiresAt,
+      })
+      .select()
+      .single()
+    if (error) return json(500, { error: error.message })
+
+    return json(200, { token, expires_at: expiresAt, invitation: data })
+  }
 
   // ============================================================
-  // create_invitation — 招待を作成（pending）
+  // create_invitation — 招待を作成（メール方式・旧フロー）
   // ============================================================
   if (action === 'create_invitation') {
     if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
@@ -106,10 +241,6 @@ Deno.serve(async (req) => {
     }
 
     // 既存ユーザーの重複チェック
-    const { data: existing } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .eq('tenant_id', callerTenantId)
     const existingAuth = await supabaseAdmin.auth.admin.listUsers()
     const emailExists = existingAuth.data?.users?.some(
       (u) => u.email?.toLowerCase() === (email as string).toLowerCase(),
@@ -144,7 +275,6 @@ Deno.serve(async (req) => {
       .single()
     if (error) return json(500, { error: error.message })
 
-    // 招待作成を LINE 通知
     await sendLine(
       supabaseAdmin,
       callerTenantId,
@@ -162,14 +292,13 @@ Deno.serve(async (req) => {
   }
 
   // ============================================================
-  // approve_invitation — 招待を承認（Auth ユーザー作成 + LINE通知）
+  // approve_invitation — 招待を承認（招待メール自動送信）
   // ============================================================
   if (action === 'approve_invitation') {
     if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
     const { invitation_id } = payload
     if (!invitation_id) return json(400, { error: 'invitation_id は必須です' })
 
-    // 招待情報を取得
     const { data: inv, error: invErr } = await supabaseAdmin
       .from('user_invitations')
       .select('*')
@@ -180,16 +309,15 @@ Deno.serve(async (req) => {
       return json(404, { error: '招待が見つかりません（既に処理済みの可能性があります）' })
     }
 
-    // inviteUserByEmail で Auth ユーザーを作成 + 招待メールを自動送信
+    // inviteUserByEmail で Auth ユーザー作成 + 招待メール自動送信
     const { data: inviteData, error: createErr } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(inv.email, {
+      await supabaseAdmin.auth.admin.inviteUserByEmail(inv.email as string, {
         data: { name: inv.name },
       })
     if (createErr) {
       return json(500, { error: `Auth ユーザー作成失敗: ${createErr.message}` })
     }
 
-    // users テーブルに挿入
     const { error: insertErr } = await supabaseAdmin.from('users').insert({
       id: inviteData.user.id,
       tenant_id: inv.tenant_id,
@@ -198,12 +326,10 @@ Deno.serve(async (req) => {
       is_active: true,
     })
     if (insertErr) {
-      // ロールバック: Auth ユーザーを削除
       await supabaseAdmin.auth.admin.deleteUser(inviteData.user.id)
       return json(500, { error: `ユーザー登録失敗: ${insertErr.message}` })
     }
 
-    // 招待ステータスを更新
     await supabaseAdmin
       .from('user_invitations')
       .update({
@@ -213,7 +339,6 @@ Deno.serve(async (req) => {
       })
       .eq('id', invitation_id)
 
-    // LINE 通知
     await sendLine(
       supabaseAdmin,
       callerTenantId,
@@ -231,7 +356,7 @@ Deno.serve(async (req) => {
   }
 
   // ============================================================
-  // reject_invitation — 招待を拒否
+  // reject_invitation — 招待を拒否 / QRトークンを無効化
   // ============================================================
   if (action === 'reject_invitation') {
     if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
@@ -285,7 +410,6 @@ Deno.serve(async (req) => {
       .single()
     if (tenantErr) return json(500, { error: tenantErr.message })
 
-    // settings レコードも同時に作成
     await supabaseAdmin
       .from('settings')
       .insert({ tenant_id: tenant.id })
@@ -319,7 +443,6 @@ Deno.serve(async (req) => {
     const { tenant_id } = payload
     if (!tenant_id) return json(400, { error: 'tenant_id は必須です' })
 
-    // スタッフが存在する場合は削除不可
     const { count } = await supabaseAdmin
       .from('users')
       .select('*', { count: 'exact', head: true })

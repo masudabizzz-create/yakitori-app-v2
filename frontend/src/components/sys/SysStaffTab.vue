@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import QRCode from 'qrcode'
 import { useUsersStore } from '@/stores/users'
-import type { AppUser, UserRole } from '@/types'
+import type { AppUser, UserRole, UserInvitation } from '@/types'
 
 const usersStore = useUsersStore()
 
@@ -50,11 +51,6 @@ const deleteConfirmId = ref<string | null>(null)
 const deleting = ref(false)
 const deleteErr = ref('')
 
-async function confirmDelete(userId: string) {
-  deleteConfirmId.value = userId
-  deleteErr.value = ''
-}
-
 async function executeDelete() {
   if (!deleteConfirmId.value) return
   deleting.value = true
@@ -70,68 +66,68 @@ async function executeDelete() {
   }
 }
 
-// ─── 招待フォーム ────────────────────────────────────────────────────
-const showInviteForm = ref(false)
-const inviteEmail = ref('')
-const inviteName = ref('')
-const inviteRole = ref<UserRole>('user')
-const inviting = ref(false)
-const inviteMsg = ref('')
-const inviteErr = ref('')
+// ─── QRコード発行 ────────────────────────────────────────────────────
+const qrRole = ref<UserRole>('user')
+const generating = ref(false)
+const generateErr = ref('')
+const qrDataUrl = ref('')
+const qrExpiresAt = ref('')
+const qrToken = ref('')
 
-async function submitInvitation() {
-  if (!inviteEmail.value || !inviteName.value) {
-    inviteErr.value = 'メールアドレスと名前は必須です'
-    return
-  }
-  inviting.value = true
-  inviteMsg.value = ''
-  inviteErr.value = ''
+function buildRegisterUrl(token: string): string {
+  const base = window.location.origin + window.location.pathname
+  return `${base}#/register?token=${token}`
+}
+
+async function generateQr() {
+  generating.value = true
+  generateErr.value = ''
+  qrDataUrl.value = ''
   try {
-    await usersStore.createInvitation(inviteEmail.value, inviteName.value, inviteRole.value)
-    inviteMsg.value = '招待を送信しました。管理者の承認をお待ちください。'
-    inviteEmail.value = ''
-    inviteName.value = ''
-    inviteRole.value = 'user'
-    showInviteForm.value = false
+    const result = await usersStore.createQrInvitation(qrRole.value)
+    qrToken.value = result.token
+    qrExpiresAt.value = result.expires_at
+    const url = buildRegisterUrl(result.token)
+    qrDataUrl.value = await QRCode.toDataURL(url, { width: 256, margin: 2 })
+    await usersStore.fetchInvitations()
   } catch (e) {
-    inviteErr.value = e instanceof Error ? e.message : '招待に失敗しました'
+    generateErr.value = e instanceof Error ? e.message : 'QR発行に失敗しました'
   } finally {
-    inviting.value = false
+    generating.value = false
   }
 }
 
-// ─── 招待承認・拒否 ──────────────────────────────────────────────────
-const approvalLoading = ref<string | null>(null)
-const approvalErr = ref('')
-const approvalMsg = ref('')
-
-async function approve(id: string) {
-  approvalLoading.value = id
-  approvalErr.value = ''
-  approvalMsg.value = ''
-  try {
-    await usersStore.approveInvitation(id)
-    syncFromStore()
-    approvalMsg.value = '招待を承認し、スタッフを追加しました'
-  } catch (e) {
-    approvalErr.value = e instanceof Error ? e.message : '承認に失敗しました'
-  } finally {
-    approvalLoading.value = null
-  }
+function formatExpiry(iso: string): string {
+  return new Date(iso).toLocaleString('ja-JP', {
+    month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 }
 
-async function reject(id: string) {
-  approvalLoading.value = id
-  approvalErr.value = ''
-  approvalMsg.value = ''
+// ─── 発行済みQRコード一覧 ────────────────────────────────────────────
+const pendingQr = computed<UserInvitation[]>(() =>
+  usersStore.invitations.filter((inv) => inv.token !== null),
+)
+
+const revoking = ref<string | null>(null)
+const revokeErr = ref('')
+
+async function revokeQr(id: string) {
+  revoking.value = id
+  revokeErr.value = ''
   try {
-    await usersStore.rejectInvitation(id)
-    approvalMsg.value = '招待を拒否しました'
+    await usersStore.revokeQrInvitation(id)
+    if (qrToken.value) {
+      const still = usersStore.invitations.find((i) => i.token === qrToken.value)
+      if (!still) {
+        qrDataUrl.value = ''
+        qrToken.value = ''
+      }
+    }
   } catch (e) {
-    approvalErr.value = e instanceof Error ? e.message : '拒否に失敗しました'
+    revokeErr.value = e instanceof Error ? e.message : '取消に失敗しました'
   } finally {
-    approvalLoading.value = null
+    revoking.value = null
   }
 }
 
@@ -143,49 +139,83 @@ function roleLabel(role: UserRole): string {
 <template>
   <div class="space-y-5">
 
-    <!-- ─── 保留中の招待 ─────────────────────────────────────────── -->
-    <section
-      v-if="usersStore.invitations.length > 0"
-      class="bg-card dark:bg-card-dark border border-amber-400/40 dark:border-amber-500/30 rounded-2xl overflow-hidden"
-    >
-      <h2 class="px-4 py-2.5 bg-amber-50 dark:bg-amber-500/10 text-sm font-semibold text-amber-700 dark:text-amber-400">
-        📋 承認待ちの招待 ({{ usersStore.invitations.length }}件)
+    <!-- ─── QRコード発行 ─────────────────────────────────────────── -->
+    <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
+      <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+        📲 スタッフ登録用QRコードを発行する
       </h2>
+      <div class="px-4 py-4 space-y-3">
+        <div>
+          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">役割</label>
+          <select
+            v-model="qrRole"
+            class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
+          >
+            <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
+          </select>
+        </div>
 
-      <p v-if="approvalErr" class="mx-4 mt-3 text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">
-        {{ approvalErr }}
-      </p>
-      <p v-if="approvalMsg" class="mx-4 mt-3 text-sm text-green-600 dark:text-green-400 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-2.5">
-        {{ approvalMsg }}
-      </p>
+        <p v-if="generateErr" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+          {{ generateErr }}
+        </p>
 
-      <ul class="divide-y divide-edge dark:divide-edge-dark">
-        <li v-for="inv in usersStore.invitations" :key="inv.id" class="px-4 py-3">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-neutral-900 dark:text-neutral-50 truncate">{{ inv.name }}</p>
-              <p class="text-xs text-neutral-500 dark:text-neutral-400 truncate">{{ inv.email }}</p>
-              <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">役割: {{ roleLabel(inv.role) }}</p>
-            </div>
-            <div class="flex gap-2 shrink-0 mt-0.5">
-              <button
-                type="button"
-                :disabled="approvalLoading === inv.id"
-                class="px-3 py-1.5 bg-green-500 hover:bg-green-600 disabled:bg-green-400/60 text-white text-xs font-semibold rounded-xl transition-colors"
-                @click="approve(inv.id)"
-              >
-                {{ approvalLoading === inv.id ? '処理中...' : '承認' }}
-              </button>
-              <button
-                type="button"
-                :disabled="approvalLoading === inv.id"
-                class="px-3 py-1.5 bg-neutral-200 hover:bg-neutral-300 dark:bg-neutral-700 dark:hover:bg-neutral-600 disabled:opacity-50 text-neutral-700 dark:text-neutral-200 text-xs font-semibold rounded-xl transition-colors"
-                @click="reject(inv.id)"
-              >
-                拒否
-              </button>
-            </div>
+        <button
+          type="button"
+          :disabled="generating"
+          class="w-full py-3 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white text-sm font-semibold rounded-xl active:scale-95 transition-transform"
+          @click="generateQr"
+        >
+          {{ generating ? '発行中...' : '🔑 QRコードを発行する' }}
+        </button>
+
+        <!-- QR表示 -->
+        <div v-if="qrDataUrl" class="flex flex-col items-center gap-3 pt-2">
+          <img :src="qrDataUrl" alt="登録用QRコード" class="w-48 h-48 rounded-xl border border-edge dark:border-edge-dark" />
+          <div class="text-center space-y-1">
+            <p class="text-xs text-neutral-500 dark:text-neutral-400">
+              役割: <span class="font-semibold text-neutral-700 dark:text-neutral-200">{{ roleLabel(qrRole) }}</span>
+            </p>
+            <p class="text-xs text-neutral-500 dark:text-neutral-400">
+              有効期限: <span class="font-semibold">{{ formatExpiry(qrExpiresAt) }}</span> まで
+            </p>
+            <p class="text-xs text-neutral-400 dark:text-neutral-500">このQRコードは24時間有効・使い捨てです</p>
           </div>
+          <button
+            type="button"
+            class="text-xs text-red-500 dark:text-red-400 hover:underline"
+            @click="revokeQr(usersStore.invitations.find(i => i.token === qrToken)?.id ?? '')"
+          >
+            このQRを今すぐ無効化する
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── 発行済みQRコード一覧 ─────────────────────────────────── -->
+    <section
+      v-if="pendingQr.length > 0"
+      class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
+    >
+      <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+        発行済みQRコード（{{ pendingQr.length }}件）
+      </h2>
+      <p v-if="revokeErr" class="mx-4 mt-2 text-sm text-red-500 dark:text-red-400">{{ revokeErr }}</p>
+      <ul class="divide-y divide-edge dark:divide-edge-dark">
+        <li v-for="inv in pendingQr" :key="inv.id" class="px-4 py-3 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-sm font-medium text-neutral-800 dark:text-neutral-100">{{ roleLabel(inv.role) }}</p>
+            <p class="text-xs text-neutral-400 dark:text-neutral-500">
+              期限: {{ inv.expires_at ? formatExpiry(inv.expires_at) : '—' }}
+            </p>
+          </div>
+          <button
+            type="button"
+            :disabled="revoking === inv.id"
+            class="px-3 py-1.5 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors disabled:opacity-50"
+            @click="revokeQr(inv.id)"
+          >
+            {{ revoking === inv.id ? '処理中...' : '取消' }}
+          </button>
         </li>
       </ul>
     </section>
@@ -209,7 +239,7 @@ function roleLabel(role: UserRole): string {
             <button
               type="button"
               class="shrink-0 px-2.5 py-1.5 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-              @click="confirmDelete(u.id)"
+              @click="deleteConfirmId = u.id; deleteErr = ''"
             >
               削除
             </button>
@@ -249,7 +279,7 @@ function roleLabel(role: UserRole): string {
         <div class="flex gap-3">
           <button
             type="button"
-            class="flex-1 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-sm font-semibold rounded-xl transition-colors"
+            class="flex-1 py-2.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 text-sm font-semibold rounded-xl"
             @click="deleteConfirmId = null"
           >
             キャンセル
@@ -283,67 +313,6 @@ function roleLabel(role: UserRole): string {
     >
       {{ saving ? '保存中...' : '💾 スタッフ情報を保存する' }}
     </button>
-
-    <!-- ─── スタッフ招待フォーム ─────────────────────────────────── -->
-    <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
-      <button
-        type="button"
-        class="w-full px-4 py-3 flex items-center justify-between text-sm font-semibold text-neutral-700 dark:text-neutral-200 bg-black/[0.03] dark:bg-white/[0.04]"
-        @click="showInviteForm = !showInviteForm"
-      >
-        <span>➕ 新規スタッフを招待する</span>
-        <span class="text-neutral-400">{{ showInviteForm ? '▲' : '▼' }}</span>
-      </button>
-
-      <div v-if="showInviteForm" class="px-4 py-4 space-y-3">
-        <div>
-          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">メールアドレス</label>
-          <input
-            v-model="inviteEmail"
-            type="email"
-            placeholder="staff@example.com"
-            class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">名前</label>
-          <input
-            v-model="inviteName"
-            type="text"
-            placeholder="山田 太郎"
-            class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">役割</label>
-          <select
-            v-model="inviteRole"
-            class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
-          >
-            <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
-          </select>
-        </div>
-
-        <p v-if="inviteErr" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
-          {{ inviteErr }}
-        </p>
-        <p v-if="inviteMsg" class="text-sm text-green-600 dark:text-green-400 bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2">
-          {{ inviteMsg }}
-        </p>
-
-        <button
-          type="button"
-          :disabled="inviting"
-          class="w-full py-3 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white text-sm font-semibold rounded-xl active:scale-95 transition-transform"
-          @click="submitInvitation"
-        >
-          {{ inviting ? '送信中...' : '招待を送信する' }}
-        </button>
-        <p class="text-xs text-neutral-400 dark:text-neutral-500">
-          招待は管理者の承認後にアカウントが作成されます。承認時に LINE 通知が送信されます。
-        </p>
-      </div>
-    </section>
 
   </div>
 </template>

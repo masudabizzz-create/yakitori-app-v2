@@ -146,15 +146,24 @@ npx tsx migrate_from_gas.ts
 
 ## 4. Edge Function のデプロイ
 
-### 4-0. DB マイグレーション（新ロール・招待テーブル）
+### 4-0. DB マイグレーション
 
-スタッフ管理の招待・承認フローを使う前に、Supabase Dashboard の **SQL Editor** で
-`supabase/migrations/004_new_roles_and_invitations.sql` を実行してください。
+スタッフ管理機能を使う前に、Supabase Dashboard の **SQL Editor** で以下を**この順番で**実行してください。
 
-内容:
+| ファイル | 内容 |
+|---------|------|
+| `supabase/migrations/004_new_roles_and_invitations.sql` | 7ロール対応 + `user_invitations` テーブル + RLS |
+| `supabase/migrations/005_qr_invitation.sql` | QRコード招待フロー対応（token / expires_at カラム追加） |
+
+004 の内容:
 - `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
-- `user_invitations` テーブルを作成（招待・承認フロー用）
+- `user_invitations` テーブルを作成
 - RLS ポリシーを追加
+
+005 の内容:
+- `user_invitations` に `token`（uuid）・`expires_at`（timestamptz）カラムを追加
+- `email` / `name` を nullable に変更（QRフローでは登録時にスタッフが入力）
+- `status` に `used` を追加
 
 ---
 

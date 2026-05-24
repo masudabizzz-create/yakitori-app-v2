@@ -11,13 +11,13 @@ export type UserRole =
   | 'kitchen'
   | 'hall'
 
-export type InvitationStatus = 'pending' | 'approved' | 'rejected'
+export type InvitationStatus = 'pending' | 'approved' | 'rejected' | 'used'
 
 export interface UserInvitation {
   id: string
   tenant_id: string
-  email: string
-  name: string
+  email: string | null
+  name: string | null
   role: UserRole
   status: InvitationStatus
   created_by: string
@@ -25,6 +25,8 @@ export interface UserInvitation {
   reviewed_at: string | null
   note: string
   created_at: string
+  token: string | null
+  expires_at: string | null
 }
 
 export type SkewerCategory =

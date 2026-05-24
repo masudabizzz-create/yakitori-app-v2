@@ -20,6 +20,12 @@ const router = createRouter({
       meta: { title: 'ログイン' },
     },
     {
+      path: '/register',
+      name: 'register',
+      component: () => import('@/views/RegisterView.vue'),
+      meta: { title: 'スタッフ登録' },
+    },
+    {
       path: '/',
       name: 'home',
       component: () => import('@/views/HomeView.vue'),
