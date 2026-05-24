@@ -2,16 +2,20 @@
 import { ref, onMounted } from 'vue'
 import { useUsersStore } from '@/stores/users'
 import { useSettingsStore } from '@/stores/settings'
+import { useTenantsStore } from '@/stores/tenants'
 import SysStaffTab from '@/components/sys/SysStaffTab.vue'
 import SysSettingsTab from '@/components/sys/SysSettingsTab.vue'
+import SysTenantsTab from '@/components/sys/SysTenantsTab.vue'
 
-type TabKey = 'staff' | 'settings'
+type TabKey = 'staff' | 'tenants' | 'settings'
 
 const usersStore = useUsersStore()
 const settingsStore = useSettingsStore()
+const tenantsStore = useTenantsStore()
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'staff', label: 'スタッフ管理' },
+  { key: 'tenants', label: '店舗管理' },
   { key: 'settings', label: 'システム設定' },
 ]
 const activeTab = ref<TabKey>('staff')
@@ -23,9 +27,15 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
-    await Promise.all([usersStore.fetchAll(), settingsStore.fetchSettings()])
+    await Promise.all([
+      usersStore.fetchAll(),
+      usersStore.fetchInvitations(),
+      settingsStore.fetchSettings(),
+      tenantsStore.fetchAll(),
+    ])
     if (usersStore.error) throw new Error(usersStore.error)
     if (settingsStore.error) throw new Error(settingsStore.error)
+    if (tenantsStore.error) throw new Error(tenantsStore.error)
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : '読み込みに失敗しました'
   } finally {
@@ -67,6 +77,7 @@ onMounted(async () => {
       </p>
       <template v-else>
         <SysStaffTab v-show="activeTab === 'staff'" />
+        <SysTenantsTab v-show="activeTab === 'tenants'" />
         <SysSettingsTab v-show="activeTab === 'settings'" />
       </template>
     </main>

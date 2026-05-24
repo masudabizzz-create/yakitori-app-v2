@@ -1,18 +1,18 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase'
-import type { AppUser } from '@/types'
+import type { AppUser, UserInvitation, UserRole } from '@/types'
 
 /**
  * スタッフ（users テーブル）ストア
  *
- * 注: 新規スタッフの追加・削除は Supabase Auth ユーザーの作成/削除を伴うため、
- *     クライアントからは行えない（service_role が必要）。
- *     当ストアは既存スタッフの一覧取得と 名前/役割/有効フラグ の更新のみを担う。
- *     新規追加・削除は Supabase Dashboard で行う（SETUP.md 参照）。
+ * スタッフの新規追加・削除は Supabase Auth ユーザーの操作（service_role 必要）を伴うため、
+ * manage-users Edge Function 経由で行う。
+ * 当ストアはスタッフ一覧・招待一覧の取得と、既存スタッフの編集・Edge Function 呼び出しを担う。
  */
 export const useUsersStore = defineStore('users', () => {
   const users = ref<AppUser[]>([])
+  const invitations = ref<UserInvitation[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -32,6 +32,18 @@ export const useUsersStore = defineStore('users', () => {
     loading.value = false
   }
 
+  /** 保留中の招待一覧を取得する */
+  async function fetchInvitations(): Promise<void> {
+    const { data, error: err } = await supabase
+      .from('user_invitations')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+    if (!err) {
+      invitations.value = (data ?? []) as UserInvitation[]
+    }
+  }
+
   /** スタッフの 名前/役割/有効フラグ を一括更新する */
   async function saveUsers(rows: AppUser[]): Promise<void> {
     for (const u of rows) {
@@ -44,5 +56,69 @@ export const useUsersStore = defineStore('users', () => {
     await fetchAll()
   }
 
-  return { users, loading, error, fetchAll, saveUsers }
+  /** スタッフ招待を作成する（manage-users Edge Function 経由） */
+  async function createInvitation(
+    email: string,
+    name: string,
+    role: UserRole,
+  ): Promise<void> {
+    const { data, error: err } = await supabase.functions.invoke('manage-users', {
+      body: { action: 'create_invitation', email, name, role },
+    })
+    if (err) {
+      const detail = (data as { error?: string } | null)?.error ?? err.message
+      throw new Error(detail)
+    }
+    await fetchInvitations()
+  }
+
+  /** 招待を承認する（Auth ユーザー作成 + LINE通知） */
+  async function approveInvitation(invitationId: string): Promise<void> {
+    const { data, error: err } = await supabase.functions.invoke('manage-users', {
+      body: { action: 'approve_invitation', invitation_id: invitationId },
+    })
+    if (err) {
+      const detail = (data as { error?: string } | null)?.error ?? err.message
+      throw new Error(detail)
+    }
+    await Promise.all([fetchAll(), fetchInvitations()])
+  }
+
+  /** 招待を拒否する */
+  async function rejectInvitation(invitationId: string, note = ''): Promise<void> {
+    const { data, error: err } = await supabase.functions.invoke('manage-users', {
+      body: { action: 'reject_invitation', invitation_id: invitationId, note },
+    })
+    if (err) {
+      const detail = (data as { error?: string } | null)?.error ?? err.message
+      throw new Error(detail)
+    }
+    await fetchInvitations()
+  }
+
+  /** スタッフを削除する（Auth ユーザー削除 → users テーブルも CASCADE 削除） */
+  async function deleteUser(userId: string): Promise<void> {
+    const { data, error: err } = await supabase.functions.invoke('manage-users', {
+      body: { action: 'delete_user', user_id: userId },
+    })
+    if (err) {
+      const detail = (data as { error?: string } | null)?.error ?? err.message
+      throw new Error(detail)
+    }
+    await fetchAll()
+  }
+
+  return {
+    users,
+    invitations,
+    loading,
+    error,
+    fetchAll,
+    fetchInvitations,
+    saveUsers,
+    createInvitation,
+    approveInvitation,
+    rejectInvitation,
+    deleteUser,
+  }
 })

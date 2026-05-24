@@ -68,7 +68,15 @@ const router = createRouter({
   ],
 })
 
-const ROLE_RANK: Record<UserRole, number> = { user: 1, manager: 2, admin: 3 }
+const ROLE_RANK: Record<UserRole, number> = {
+  hall: 1,
+  kitchen: 1,
+  user: 1,
+  manager: 2,
+  admin: 3,
+  tenant_admin: 4,
+  super_admin: 5,
+}
 
 function hasRole(actual: UserRole | null, required: UserRole): boolean {
   if (!actual) return false

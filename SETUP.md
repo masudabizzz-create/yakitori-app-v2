@@ -144,7 +144,45 @@ npx tsx migrate_from_gas.ts
 
 ---
 
-## 4. LINE通知 Edge Function のデプロイ
+## 4. Edge Function のデプロイ
+
+### 4-0. DB マイグレーション（新ロール・招待テーブル）
+
+スタッフ管理の招待・承認フローを使う前に、Supabase Dashboard の **SQL Editor** で
+`supabase/migrations/004_new_roles_and_invitations.sql` を実行してください。
+
+内容:
+- `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
+- `user_invitations` テーブルを作成（招待・承認フロー用）
+- RLS ポリシーを追加
+
+---
+
+### manage-users Edge Function（スタッフ・店舗管理）
+
+スタッフの追加・削除や招待の承認は Supabase Auth ユーザーの操作が必要なため、
+`service_role` を使用する Edge Function（`supabase/functions/manage-users/`）経由で行います。
+
+対応アクション:
+- `create_invitation` — 招待を作成（pending 状態）
+- `approve_invitation` — 招待を承認（Auth ユーザー作成 + LINE通知）
+- `reject_invitation` — 招待を拒否
+- `delete_user` — スタッフ削除（Auth ユーザー削除 → CASCADE）
+- `create_tenant` / `update_tenant` / `delete_tenant` — 店舗の作成・更新・削除
+
+#### デプロイ
+
+Supabase CLI でリンク済みの状態（4-2 参照）で：
+
+```bash
+supabase functions deploy manage-users
+```
+
+成功すると `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/manage-users` で公開されます。
+
+---
+
+### LINE通知 Edge Function のデプロイ
 
 ブラウザから LINE Messaging API を直接叩くと **CORS でブロック**されるため、
 中継用の Supabase Edge Function（`supabase/functions/send-line/`）を経由します。
@@ -247,5 +285,7 @@ npm run preview
 
 ### 既知の制約
 
-- スタッフの新規追加・削除は Supabase Dashboard で実施（1-4 参照）
+- スタッフの新規追加・削除は `manage-users` Edge Function 経由（招待→承認フロー）
+  - Edge Function のデプロイが必要（4章参照）
+  - DB マイグレーション `004_new_roles_and_invitations.sql` の実行が必要
 - LINEトークンは RLS と Edge Function 経由で保護（Vault暗号化は今後の強化項目）

@@ -2,7 +2,30 @@
 // 型定義
 // ============================================================
 
-export type UserRole = 'admin' | 'manager' | 'user'
+export type UserRole =
+  | 'super_admin'
+  | 'tenant_admin'
+  | 'admin'
+  | 'manager'
+  | 'user'
+  | 'kitchen'
+  | 'hall'
+
+export type InvitationStatus = 'pending' | 'approved' | 'rejected'
+
+export interface UserInvitation {
+  id: string
+  tenant_id: string
+  email: string
+  name: string
+  role: UserRole
+  status: InvitationStatus
+  created_by: string
+  reviewed_by: string | null
+  reviewed_at: string | null
+  note: string
+  created_at: string
+}
 
 export type SkewerCategory =
   | 'レギュラー'

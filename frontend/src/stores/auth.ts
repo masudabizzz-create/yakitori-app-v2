@@ -17,8 +17,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => authUser.value !== null)
   const role = computed<UserRole | null>(() => appUser.value?.role ?? null)
-  const isAdmin = computed(() => role.value === 'admin')
-  const isManager = computed(() => role.value === 'admin' || role.value === 'manager')
+  const isAdmin = computed(() =>
+    role.value === 'super_admin' ||
+    role.value === 'tenant_admin' ||
+    role.value === 'admin',
+  )
+  const isManager = computed(() =>
+    role.value === 'super_admin' ||
+    role.value === 'tenant_admin' ||
+    role.value === 'admin' ||
+    role.value === 'manager',
+  )
   const displayName = computed(
     () => appUser.value?.name ?? authUser.value?.email ?? ''
   )
