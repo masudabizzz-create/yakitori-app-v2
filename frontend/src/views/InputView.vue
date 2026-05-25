@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useSkewersStore } from '@/stores/skewers'
 import { useSettingsStore } from '@/stores/settings'
 import { useDailyLogStore } from '@/stores/dailyLog'
+import { useUsersStore } from '@/stores/users'
 import { calcPrep, calcTotalSkewers } from '@/composables/useInventoryCalc'
 import { notifyDailyReport } from '@/composables/useLineNotify'
 import StepperInput from '@/components/StepperInput.vue'
@@ -16,6 +17,7 @@ const auth = useAuthStore()
 const skewersStore = useSkewersStore()
 const settingsStore = useSettingsStore()
 const dailyLogStore = useDailyLogStore()
+const usersStore = useUsersStore()
 
 const loading = ref(true)
 const loadError = ref('')
@@ -59,6 +61,11 @@ const groupedSkewers = computed(() =>
   })).filter((g) => g.items.length > 0),
 )
 
+/** 有効なスタッフ一覧（名前順）*/
+const activeUsers = computed(() =>
+  usersStore.users.filter((u) => u.is_active),
+)
+
 // 翌日が日曜か
 const tomorrowIsSunday = computed(() => {
   const t = new Date()
@@ -96,7 +103,11 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
-    await Promise.all([skewersStore.fetchActive(), settingsStore.fetchSettings()])
+    await Promise.all([
+      skewersStore.fetchActive(),
+      settingsStore.fetchSettings(),
+      usersStore.fetchAll(),
+    ])
     if (skewersStore.error) throw new Error(skewersStore.error)
     if (settingsStore.error) throw new Error(settingsStore.error)
 
@@ -234,10 +245,23 @@ async function handleSubmit() {
           前回の下書きを復元しました
         </p>
 
-        <!-- 焼師 -->
-        <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3">
-          <span class="text-sm text-neutral-500 dark:text-neutral-400">焼師</span>
-          <span class="ml-2 font-semibold text-neutral-900 dark:text-neutral-50">{{ form.staffName || '—' }}</span>
+        <!-- 焼師（プルダウン選択） -->
+        <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3 space-y-1.5">
+          <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400">焼師</p>
+          <!-- スタッフ一覧取得済みの場合はプルダウン -->
+          <select
+            v-if="activeUsers.length > 0"
+            v-model="form.staffName"
+            class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white text-sm font-semibold focus:border-brand-500 focus:ring-brand-500 px-3 py-2"
+          >
+            <option v-for="u in activeUsers" :key="u.id" :value="u.name">
+              {{ u.name }}
+            </option>
+          </select>
+          <!-- フォールバック: 取得失敗時はテキスト表示 -->
+          <p v-else class="font-semibold text-neutral-900 dark:text-neutral-50">
+            {{ form.staffName || '—' }}
+          </p>
         </section>
 
         <!-- 在庫入力 -->

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useSkewersStore } from '@/stores/skewers'
 import { useSettingsStore } from '@/stores/settings'
 import { useDailyLogStore } from '@/stores/dailyLog'
 import { useAuthStore } from '@/stores/auth'
 import { usePrepLogsStore } from '@/stores/prepLogs'
 import { calcPrep, type PrepResult } from '@/composables/useInventoryCalc'
+import { supabase } from '@/lib/supabase'
 import type { SkewerCategory } from '@/types'
 import CategoryTabs from '@/components/CategoryTabs.vue'
 import PrepCard from '@/components/PrepCard.vue'
@@ -58,6 +59,29 @@ function toggleTimer() {
   timerEnabled.value = !timerEnabled.value
   try { localStorage.setItem(TIMER_KEY, timerEnabled.value ? '1' : '0') } catch { /* ignore */ }
 }
+
+// ─── Realtime ────────────────────────────────────────────────
+// prep_logs と daily_log_stocks の変更を Supabase Realtime で監視し、
+// 複数端末で仕込み完了状態・在庫データを即時同期する。
+
+const realtimeStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
+let realtimeChannel: ReturnType<typeof supabase.channel> | null = null
+
+const statusLabel = computed(() => {
+  if (realtimeStatus.value === 'connected') return 'リアルタイム同期中'
+  if (realtimeStatus.value === 'connecting') return '接続中...'
+  return 'オフライン'
+})
+const statusDotClass = computed(() => {
+  if (realtimeStatus.value === 'connected') return 'bg-green-500'
+  if (realtimeStatus.value === 'connecting') return 'bg-amber-400 animate-pulse'
+  return 'bg-red-500'
+})
+const statusTextClass = computed(() => {
+  if (realtimeStatus.value === 'connected') return 'text-green-600 dark:text-green-400'
+  if (realtimeStatus.value === 'connecting') return 'text-amber-600 dark:text-amber-400'
+  return 'text-red-500 dark:text-red-400'
+})
 
 // ─── 追加仕込みモーダル ─────────────────────────────────────────
 
@@ -259,11 +283,54 @@ onMounted(async () => {
     if (tenantId && prepDate.value) {
       await prepLogsStore.fetchByDate(tenantId, prepDate.value)
     }
+
+    // ── Realtime 購読開始 ──────────────────────────────────────
+    if (tenantId) {
+      realtimeChannel = supabase
+        .channel(`dashboard:${tenantId}`)
+        // prep_logs の変更 → 完了ステータスを即時更新
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'prep_logs' },
+          async () => {
+            const pd = prepDate.value
+            if (pd) await prepLogsStore.fetchByDate(tenantId, pd)
+          },
+        )
+        // daily_log_stocks の変更 → 在庫データ + 仕込み量を再計算
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'daily_log_stocks' },
+          async () => {
+            await dailyLogStore.fetchLatest()
+            const pd = prepDate.value
+            if (pd) await prepLogsStore.fetchByDate(tenantId, pd)
+          },
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            realtimeStatus.value = 'connected'
+          } else if (
+            status === 'CHANNEL_ERROR' ||
+            status === 'TIMED_OUT' ||
+            status === 'CLOSED'
+          ) {
+            realtimeStatus.value = 'disconnected'
+          }
+        })
+    }
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : '読み込みに失敗しました'
   } finally {
     loading.value = false
     hasInitialized.value = true
+  }
+})
+
+onUnmounted(() => {
+  if (realtimeChannel) {
+    supabase.removeChannel(realtimeChannel)
+    realtimeChannel = null
   }
 })
 </script>
@@ -277,8 +344,14 @@ onMounted(async () => {
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
         <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">仕込みダッシュボード</h1>
       </div>
-      <!-- タイマー切替行 -->
-      <div class="max-w-lg mx-auto px-4 pb-2 flex justify-end">
+      <!-- 接続状態 + タイマー切替行 -->
+      <div class="max-w-lg mx-auto px-4 pb-2 flex items-center justify-between">
+        <!-- 接続状態インジケーター -->
+        <div class="flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass"></span>
+          <span class="text-xs" :class="statusTextClass">{{ statusLabel }}</span>
+        </div>
+        <!-- タイマー切替 -->
         <button
           type="button"
           class="text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
