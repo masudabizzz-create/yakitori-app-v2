@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useTenantsStore } from '@/stores/tenants'
+import { useAuthStore } from '@/stores/auth'
 import type { Tenant } from '@/types'
 
 const tenantsStore = useTenantsStore()
+const auth = useAuthStore()
 
 const editRows = ref<{ id: string; name: string }[]>([])
 const saving = ref<string | null>(null)
@@ -139,8 +141,11 @@ function tenantName(id: string): string {
       {{ saveMsg }}
     </p>
 
-    <!-- ─── 新規店舗作成 ─────────────────────────────────────────── -->
-    <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
+    <!-- ─── 新規店舗作成（platform_admin のみ表示） ──────────────── -->
+    <section
+      v-if="auth.role === 'platform_admin'"
+      class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
+    >
       <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">➕ 新規店舗を追加する</h2>
       <div class="px-4 py-4 space-y-3">
         <div>

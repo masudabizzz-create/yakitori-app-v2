@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useUsersStore } from '@/stores/users'
 import { useSettingsStore } from '@/stores/settings'
 import { useTenantsStore } from '@/stores/tenants'
+import { useAuthStore } from '@/stores/auth'
 import SysStaffTab from '@/components/sys/SysStaffTab.vue'
 import SysSettingsTab from '@/components/sys/SysSettingsTab.vue'
 import SysTenantsTab from '@/components/sys/SysTenantsTab.vue'
@@ -12,13 +13,25 @@ type TabKey = 'staff' | 'tenants' | 'settings'
 const usersStore = useUsersStore()
 const settingsStore = useSettingsStore()
 const tenantsStore = useTenantsStore()
+const auth = useAuthStore()
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'staff', label: 'スタッフ管理' },
-  { key: 'tenants', label: '店舗管理' },
+/** 店舗管理タブは platform_admin のみ表示 */
+const TABS = computed<{ key: TabKey; label: string }[]>(() => [
+  { key: 'staff',    label: 'スタッフ管理' },
+  ...(auth.role === 'platform_admin'
+    ? [{ key: 'tenants' as TabKey, label: '店舗管理' }]
+    : []),
   { key: 'settings', label: 'システム設定' },
-]
+])
+
 const activeTab = ref<TabKey>('staff')
+
+// タブが非表示になった場合のフォールバック
+watch(TABS, (tabs) => {
+  if (!tabs.find((t) => t.key === activeTab.value)) {
+    activeTab.value = 'staff'
+  }
+}, { immediate: true })
 
 const loading = ref(true)
 const loadError = ref('')
