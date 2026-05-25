@@ -65,6 +65,21 @@ export const usePrepLogsStore = defineStore('prepLogs', () => {
       ),
   )
 
+  /**
+   * 指定串の通常完了ログを取り消す（該当 skewerId の normal ログを削除）
+   */
+  async function undoCompletion(tenantId: string, logDate: string, skewerId: string): Promise<void> {
+    const { error: err } = await supabase
+      .from('prep_logs')
+      .delete()
+      .eq('tenant_id', tenantId)
+      .eq('log_date', logDate)
+      .eq('skewer_id', skewerId)
+      .eq('type', 'normal')
+    if (err) throw new Error(err.message)
+    await fetchByDate(tenantId, logDate)
+  }
+
   /** 今日の合計串本数（通常 + 追加の合計） */
   const totalStickCount = computed(() =>
     todayLogs.value.reduce((sum, l) => sum + l.stick_count, 0),
@@ -76,6 +91,7 @@ export const usePrepLogsStore = defineStore('prepLogs', () => {
     error,
     fetchByDate,
     recordCompletion,
+    undoCompletion,
     completedSkewerIds,
     totalStickCount,
   }

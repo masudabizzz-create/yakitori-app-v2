@@ -189,6 +189,19 @@ async function handleComplete(result: PrepResult, durationSeconds?: number) {
   }
 }
 
+// ─── 取り消し ─────────────────────────────────────────────────
+
+async function handleUndo(result: PrepResult) {
+  const tenantId = auth.appUser?.tenant_id
+  if (!tenantId || !prepDate.value) return
+  completeError.value = ''
+  try {
+    await prepLogsStore.undoCompletion(tenantId, prepDate.value, result.skewerId)
+  } catch (e) {
+    completeError.value = e instanceof Error ? e.message : '取り消しに失敗しました'
+  }
+}
+
 // ─── 追加仕込み ────────────────────────────────────────────────
 
 const extraSkewers = computed(() =>
@@ -392,6 +405,7 @@ onMounted(async () => {
             :completed="prepLogsStore.completedSkewerIds.has(r.skewerId)"
             :timer-enabled="timerEnabled"
             @complete="(dur) => handleComplete(r, dur)"
+            @undo="handleUndo(r)"
           />
         </div>
         <p v-else class="text-center text-neutral-400 dark:text-neutral-500 text-sm py-8">

@@ -17,6 +17,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** 完了ボタン押下。durationSeconds は長押しタイマー使用時のみ渡される */
   complete: [durationSeconds?: number]
+  /** 完了を取り消す */
+  undo: []
 }>()
 
 const needsPrep = computed(() => props.result.prepAmount > 0)
@@ -136,9 +138,14 @@ onUnmounted(clearTimers)
       </button>
     </template>
 
-    <!-- 完了済み: チェックアイコン（スペース確保用） -->
-    <div v-else-if="completed" class="shrink-0 w-12 h-12 flex items-center justify-center">
-      <span class="text-2xl text-green-400">✓</span>
-    </div>
+    <!-- 完了済み: 取り消しボタン -->
+    <button
+      v-else-if="completed"
+      type="button"
+      class="shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-400 dark:text-neutral-500 border border-edge dark:border-edge-dark hover:text-red-400 hover:border-red-400/40 transition-colors"
+      @click="emit('undo')"
+    >
+      取り消す
+    </button>
   </div>
 </template>
