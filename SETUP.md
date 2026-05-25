@@ -157,6 +157,8 @@ npx tsx migrate_from_gas.ts
 | `supabase/migrations/006_delivery_blackouts.sql` | 発注イレギュラー管理再設計（旧テーブル廃止・新2テーブル作成） |
 | `supabase/migrations/007_prep_logs.sql` | 仕込み完了ログテーブル（prep_logs）新規作成 |
 | `supabase/migrations/008_new_roles.sql` | **ロール設計全面刷新**（既存データ移行 + RLS更新）|
+| `supabase/migrations/009_tenants_platform_admin_only.sql` | 店舗作成（INSERT）を `platform_admin` のみに制限 |
+| `supabase/migrations/010_platform_admin_cross_tenant.sql` | `platform_admin` が全テナントのデータを読み書き可能に |
 
 004 の内容:
 - `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
@@ -184,6 +186,15 @@ npx tsx migrate_from_gas.ts
 - 全テーブルの RLS ポリシーを新ロール名に更新
 - `prep_logs` の DELETE を「自分の記録のみ」に制限（manager以上は全件削除可）
 - `is_active = false` スタッフはルートガードで強制ログアウト（フロントエンド制御）
+
+009 の内容:
+- `tenants` テーブルの INSERT を `platform_admin` のみに制限（店舗作成権限の強化）
+
+010 の内容:
+- `platform_admin` が全テナントの以下テーブルを読み書き可能に（クロステナント管理）
+  - `tenants`（SELECT: 全テナント一覧表示）
+  - `skewers` / `settings` / `order_schedules` / `delivery_blackout_periods` / `delivery_irregular_dates`
+- 店舗作成後の初期設定フローを有効化（`/admin/ops?tenant=<id>` による店舗コンテキスト切り替え）
 
 ---
 

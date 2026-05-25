@@ -11,14 +11,16 @@ export const useSettingsStore = defineStore('settings', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 自テナントの設定を取得する */
-  async function fetchSettings(): Promise<void> {
+  /**
+   * 設定を取得する。
+   * tenantId を渡すと明示的に絞り込む（platform_admin が別テナント操作時に使用）。
+   */
+  async function fetchSettings(tenantId?: string): Promise<void> {
     loading.value = true
     error.value = null
-    const { data, error: err } = await supabase
-      .from('settings')
-      .select('*')
-      .single()
+    const { data, error: err } = await (tenantId
+      ? supabase.from('settings').select('*').eq('tenant_id', tenantId).single()
+      : supabase.from('settings').select('*').single())
     if (err) {
       error.value = err.message
     } else {

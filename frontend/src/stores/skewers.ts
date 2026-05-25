@@ -11,15 +11,15 @@ export const useSkewersStore = defineStore('skewers', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 有効な串のみを sort_order 順で取得する */
-  async function fetchActive(): Promise<void> {
+  /**
+   * 有効な串のみを sort_order 順で取得する。
+   * tenantId を渡すと明示的に絞り込む（platform_admin が別テナント操作時に使用）。
+   */
+  async function fetchActive(tenantId?: string): Promise<void> {
     loading.value = true
     error.value = null
-    const { data, error: err } = await supabase
-      .from('skewers')
-      .select('*')
-      .eq('is_active', true)
-      .order('sort_order')
+    const q = supabase.from('skewers').select('*').eq('is_active', true).order('sort_order')
+    const { data, error: err } = await (tenantId ? q.eq('tenant_id', tenantId) : q)
     if (err) {
       error.value = err.message
     } else {
@@ -28,14 +28,15 @@ export const useSkewersStore = defineStore('skewers', () => {
     loading.value = false
   }
 
-  /** 無効を含む全串を取得する（運用管理用） */
-  async function fetchAll(): Promise<void> {
+  /**
+   * 無効を含む全串を取得する（運用管理用）。
+   * tenantId を渡すと明示的に絞り込む（platform_admin が別テナント操作時に使用）。
+   */
+  async function fetchAll(tenantId?: string): Promise<void> {
     loading.value = true
     error.value = null
-    const { data, error: err } = await supabase
-      .from('skewers')
-      .select('*')
-      .order('sort_order')
+    const q = supabase.from('skewers').select('*').order('sort_order')
+    const { data, error: err } = await (tenantId ? q.eq('tenant_id', tenantId) : q)
     if (err) {
       error.value = err.message
     } else {

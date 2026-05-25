@@ -12,6 +12,11 @@ export const useAuthStore = defineStore('auth', () => {
   const authUser = ref<SupabaseAuthUser | null>(null)
   const appUser = ref<AppUser | null>(null)
   const loading = ref(true)
+  /**
+   * platform_admin が別テナントのコンテキストで操作する際に設定するテナントID。
+   * undefined のときは appUser.tenant_id（自テナント）を使用する。
+   */
+  const activeTenantId = ref<string | undefined>(undefined)
   // 初期化処理を共有 Promise として保持する（複数呼び出しを単一の完了に集約）
   let initPromise: Promise<void> | null = null
 
@@ -29,6 +34,14 @@ export const useAuthStore = defineStore('auth', () => {
   )
   const displayName = computed(
     () => appUser.value?.name ?? authUser.value?.email ?? ''
+  )
+  /**
+   * 現在操作対象のテナントID。
+   * platform_admin が setActiveTenantId() で切り替えた場合はその値を、
+   * それ以外は自テナント（appUser.tenant_id）を返す。
+   */
+  const effectiveTenantId = computed(
+    () => activeTenantId.value ?? appUser.value?.tenant_id
   )
 
   /**
@@ -50,6 +63,7 @@ export const useAuthStore = defineStore('auth', () => {
           await fetchAppUser()
         } else {
           appUser.value = null
+          activeTenantId.value = undefined
         }
       })
     })()
@@ -73,11 +87,22 @@ export const useAuthStore = defineStore('auth', () => {
     if (error) throw new Error(translateAuthError(error.message))
   }
 
+  /**
+   * 操作対象テナントを切り替える（platform_admin 専用）。
+   * undefined を渡すと自テナントに戻る。
+   */
+  function setActiveTenantId(id: string | undefined): void {
+    if (role.value === 'platform_admin' || id === undefined) {
+      activeTenantId.value = id
+    }
+  }
+
   /** ログアウトする。 */
   async function logout(): Promise<void> {
     await supabase.auth.signOut()
     authUser.value = null
     appUser.value = null
+    activeTenantId.value = undefined
   }
 
   /** ログイン中ユーザー自身のパスワードを変更する（Supabase Auth）。 */
@@ -95,6 +120,9 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
     isManager,
     displayName,
+    activeTenantId,
+    effectiveTenantId,
+    setActiveTenantId,
     initialize,
     fetchAppUser,
     login,

@@ -81,7 +81,7 @@ function removeSchedule(i: number) {
 }
 
 async function saveSchedules() {
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   if (!tenantId) { errorMsg.value = 'テナント情報がありません'; return }
   savingSched.value = true
   schedMsg.value = ''
@@ -143,7 +143,7 @@ function fmtDateRange(start: string, end: string): string {
 // ─── 納品不可期間 保存 / 削除 ─────────────────────────────────
 
 async function saveBlackout(i: number) {
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   if (!tenantId) { errorMsg.value = 'テナント情報がありません'; return }
   const row = blackoutRows.value[i]
   if (!row.title.trim()) { errorMsg.value = 'タイトルを入力してください'; return }

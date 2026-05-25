@@ -31,15 +31,17 @@ export const useTenantsStore = defineStore('tenants', () => {
     loading.value = false
   }
 
-  /** 新店舗を作成する（manage-users Edge Function 経由） */
-  async function createTenant(name: string): Promise<void> {
+  /** 新店舗を作成する（manage-users Edge Function 経由）。作成した店舗の ID を返す。 */
+  async function createTenant(name: string): Promise<string> {
     const { data, error: err } = await supabase.functions.invoke('manage-users', {
       body: { action: 'create_tenant', name },
     })
     if (err) {
       throw new Error(await extractFnError(err, data))
     }
+    const tenantId = (data as { tenant: { id: string } }).tenant.id
     await fetchAll()
+    return tenantId
   }
 
   /** 店舗名を更新する（manage-users Edge Function 経由） */

@@ -34,16 +34,21 @@ export const useOrderScheduleStore = defineStore('orderSchedule', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 通常スケジュールと納品不可期間（イレギュラー納品日含む）をまとめて取得する */
-  async function fetchAll(): Promise<void> {
+  /**
+   * 通常スケジュールと納品不可期間（イレギュラー納品日含む）をまとめて取得する。
+   * tenantId を渡すと明示的に絞り込む（platform_admin が別テナント操作時に使用）。
+   */
+  async function fetchAll(tenantId?: string): Promise<void> {
     loading.value = true
     error.value = null
+    const q1 = supabase.from('order_schedules').select('*').order('sort_order')
+    const q2 = supabase
+      .from('delivery_blackout_periods')
+      .select('*, delivery_irregular_dates(*)')
+      .order('start_date')
     const [r1, r2] = await Promise.all([
-      supabase.from('order_schedules').select('*').order('sort_order'),
-      supabase
-        .from('delivery_blackout_periods')
-        .select('*, delivery_irregular_dates(*)')
-        .order('start_date'),
+      tenantId ? q1.eq('tenant_id', tenantId) : q1,
+      tenantId ? q2.eq('tenant_id', tenantId) : q2,
     ])
     if (r1.error) error.value = r1.error.message
     else schedules.value = (r1.data ?? []) as OrderSchedule[]

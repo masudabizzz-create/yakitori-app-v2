@@ -269,17 +269,18 @@ async function submitExtraPrep() {
 onMounted(async () => {
   loading.value = true
   loadError.value = ''
+  // ダッシュボードは常に自テナントのデータを表示する
+  const tenantId = auth.appUser?.tenant_id
   try {
     await Promise.all([
-      skewersStore.fetchActive(),
-      settingsStore.fetchSettings(),
+      skewersStore.fetchActive(tenantId),
+      settingsStore.fetchSettings(tenantId),
       dailyLogStore.fetchLatest(),
     ])
     if (skewersStore.error) throw new Error(skewersStore.error)
     if (settingsStore.error) throw new Error(settingsStore.error)
 
     // prep_logs を取得（仕込み対象日が確定してから）
-    const tenantId = auth.appUser?.tenant_id
     if (tenantId && prepDate.value) {
       await prepLogsStore.fetchByDate(tenantId, prepDate.value)
     }

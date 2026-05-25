@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTenantsStore } from '@/stores/tenants'
 import { useAuthStore } from '@/stores/auth'
 import type { Tenant } from '@/types'
 
+const router = useRouter()
 const tenantsStore = useTenantsStore()
 const auth = useAuthStore()
 
@@ -17,6 +19,8 @@ const newTenantName = ref('')
 const creating = ref(false)
 const createMsg = ref('')
 const createErr = ref('')
+// 作成後の初期設定誘導ダイアログ
+const setupPromptTenantId = ref<string | null>(null)
 
 // 削除確認
 const deleteConfirmId = ref<string | null>(null)
@@ -60,15 +64,20 @@ async function createTenant() {
   createMsg.value = ''
   createErr.value = ''
   try {
-    await tenantsStore.createTenant(newTenantName.value.trim())
+    const newTenantId = await tenantsStore.createTenant(newTenantName.value.trim())
     syncRows()
     newTenantName.value = ''
-    createMsg.value = '店舗を作成しました'
+    setupPromptTenantId.value = newTenantId  // 初期設定ダイアログを表示
   } catch (e) {
     createErr.value = e instanceof Error ? e.message : '作成に失敗しました'
   } finally {
     creating.value = false
   }
+}
+
+function goToSetup(tenantId: string) {
+  setupPromptTenantId.value = null
+  router.push(`/admin/ops?tenant=${tenantId}`)
 }
 
 async function executeDelete() {
@@ -105,7 +114,7 @@ function tenantName(id: string): string {
         店舗が登録されていません
       </div>
       <ul v-else class="divide-y divide-edge dark:divide-edge-dark">
-        <li v-for="row in editRows" :key="row.id" class="px-4 py-3">
+        <li v-for="row in editRows" :key="row.id" class="px-4 py-3 space-y-2">
           <div class="flex items-center gap-2">
             <input
               v-model="row.name"
@@ -127,6 +136,16 @@ function tenantName(id: string): string {
               @click="deleteConfirmId = row.id; deleteErr = ''"
             >
               削除
+            </button>
+          </div>
+          <!-- 設定するボタン（platform_admin のみ） -->
+          <div v-if="auth.role === 'platform_admin'" class="flex justify-end">
+            <button
+              type="button"
+              class="text-xs text-brand-500 hover:underline"
+              @click="router.push(`/admin/ops?tenant=${row.id}`)"
+            >
+              ⚙️ 運用管理を設定する →
             </button>
           </div>
         </li>
@@ -175,6 +194,37 @@ function tenantName(id: string): string {
         </button>
       </div>
     </section>
+
+    <!-- ─── 店舗作成後の初期設定誘導ダイアログ ─────────────────────── -->
+    <div
+      v-if="setupPromptTenantId"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4"
+      @click.self="setupPromptTenantId = null"
+    >
+      <div class="bg-card dark:bg-card-dark rounded-2xl p-6 w-full max-w-xs shadow-xl space-y-4 text-center">
+        <p class="text-3xl">🏪</p>
+        <h3 class="text-base font-semibold text-neutral-900 dark:text-neutral-50">店舗を作成しました</h3>
+        <p class="text-sm text-neutral-500 dark:text-neutral-400">
+          続けてこの店舗の初期設定（串マスタ・コース・発注スケジュール）を行いますか？
+        </p>
+        <div class="flex gap-3">
+          <button
+            type="button"
+            class="flex-1 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-sm font-semibold rounded-xl transition-colors"
+            @click="setupPromptTenantId = null"
+          >
+            後で
+          </button>
+          <button
+            type="button"
+            class="flex-1 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-xl transition-colors"
+            @click="goToSetup(setupPromptTenantId!)"
+          >
+            設定する
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- ─── 削除確認モーダル ──────────────────────────────────────── -->
     <div

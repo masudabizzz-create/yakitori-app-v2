@@ -209,7 +209,7 @@ function isExpanded(i: number): boolean {
 // ─── 行ごとの保存 ────────────────────────────────────────────────
 
 async function saveRow(i: number) {
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   if (!tenantId) { errorMsg.value = 'テナント情報がありません'; return }
   savingRow.value = i
   message.value = ''
@@ -232,7 +232,7 @@ async function executeDelete() {
   const i = deleteConfirmIdx.value
   if (i === null) return
   const r = rows.value[i]
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   if (!tenantId) { errorMsg.value = 'テナント情報がありません'; return }
   deleting.value = true
   errorMsg.value = ''
@@ -254,7 +254,7 @@ async function executeDelete() {
 // ─── 全体保存（新規追加行をまとめて保存） ────────────────────────
 
 async function saveAll() {
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   if (!tenantId) { errorMsg.value = 'テナント情報がありません'; return }
   message.value = ''
   errorMsg.value = ''
