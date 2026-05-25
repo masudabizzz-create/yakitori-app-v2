@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
+const iconSrc = `${import.meta.env.BASE_URL}icons/icon-192.png`
+
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
@@ -31,7 +33,11 @@ async function handleLogin() {
   <div class="min-h-screen flex items-center justify-center bg-app dark:bg-app-dark px-4">
     <div class="w-full max-w-sm">
       <div class="text-center mb-8">
-        <div class="text-5xl mb-3">🍢</div>
+        <img
+          :src="iconSrc"
+          alt="串在庫管理"
+          class="w-24 h-24 mx-auto mb-4 rounded-3xl shadow-lg object-cover"
+        />
         <h1 class="text-2xl font-bold text-neutral-900 dark:text-neutral-50">串在庫管理</h1>
         <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-1">v2</p>
       </div>
