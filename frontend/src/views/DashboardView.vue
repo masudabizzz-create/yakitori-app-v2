@@ -271,11 +271,14 @@ onMounted(async () => {
 <template>
   <div class="min-h-screen bg-app dark:bg-app-dark pb-24">
     <!-- ヘッダー -->
-    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark px-4 py-4 sticky top-0 z-10">
-      <div class="max-w-lg mx-auto flex items-center gap-3 pr-12">
+    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
+      <!-- タイトル行 -->
+      <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
-        <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50 flex-1">仕込みダッシュボード</h1>
-        <!-- タイマーモード切替 -->
+        <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">仕込みダッシュボード</h1>
+      </div>
+      <!-- タイマー切替行 -->
+      <div class="max-w-lg mx-auto px-4 pb-2 flex justify-end">
         <button
           type="button"
           class="text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
