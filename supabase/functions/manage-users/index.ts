@@ -34,7 +34,7 @@ function json(status: number, body: unknown): Response {
   })
 }
 
-const ADMIN_ROLES = ['super_admin', 'tenant_admin', 'admin']
+const ADMIN_ROLES = ['platform_admin', 'store_owner', 'manager']
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
