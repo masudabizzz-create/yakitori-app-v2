@@ -13,6 +13,7 @@
 
 -- ─── tenants SELECT ──────────────────────────────────────────────
 DROP POLICY IF EXISTS "tenants_select_own" ON tenants;
+DROP POLICY IF EXISTS "tenants_select" ON tenants;
 CREATE POLICY "tenants_select" ON tenants
   FOR SELECT USING (
     id = public.current_tenant_id()
@@ -21,6 +22,7 @@ CREATE POLICY "tenants_select" ON tenants
 
 -- ─── skewers ─────────────────────────────────────────────────────
 DROP POLICY IF EXISTS "skewers_select" ON skewers;
+DROP POLICY IF EXISTS "skewers_write_manager" ON skewers;
 CREATE POLICY "skewers_select" ON skewers
   FOR SELECT USING (
     tenant_id = public.current_tenant_id()
@@ -43,6 +45,7 @@ CREATE POLICY "skewers_write_manager" ON skewers
 
 -- ─── settings ────────────────────────────────────────────────────
 DROP POLICY IF EXISTS "settings_select" ON settings;
+DROP POLICY IF EXISTS "settings_write_admin" ON settings;
 CREATE POLICY "settings_select" ON settings
   FOR SELECT USING (
     tenant_id = public.current_tenant_id()
@@ -64,6 +67,7 @@ CREATE POLICY "settings_write_admin" ON settings
 
 -- ─── order_schedules ─────────────────────────────────────────────
 DROP POLICY IF EXISTS "order_schedules_select" ON order_schedules;
+DROP POLICY IF EXISTS "order_schedules_write_manager" ON order_schedules;
 CREATE POLICY "order_schedules_select" ON order_schedules
   FOR SELECT USING (
     tenant_id = public.current_tenant_id()
@@ -85,6 +89,7 @@ CREATE POLICY "order_schedules_write_manager" ON order_schedules
 
 -- ─── delivery_blackout_periods ───────────────────────────────────
 DROP POLICY IF EXISTS "blackout_periods_select" ON delivery_blackout_periods;
+DROP POLICY IF EXISTS "blackout_periods_write_manager" ON delivery_blackout_periods;
 CREATE POLICY "blackout_periods_select" ON delivery_blackout_periods
   FOR SELECT USING (
     tenant_id = public.current_tenant_id()
@@ -106,6 +111,7 @@ CREATE POLICY "blackout_periods_write_manager" ON delivery_blackout_periods
 
 -- ─── delivery_irregular_dates ────────────────────────────────────
 DROP POLICY IF EXISTS "irregular_dates_select" ON delivery_irregular_dates;
+DROP POLICY IF EXISTS "irregular_dates_write_manager" ON delivery_irregular_dates;
 CREATE POLICY "irregular_dates_select" ON delivery_irregular_dates
   FOR SELECT USING (
     tenant_id = public.current_tenant_id()
