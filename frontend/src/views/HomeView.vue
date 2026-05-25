@@ -6,12 +6,14 @@ import { useAuthStore } from '@/stores/auth'
 const router = useRouter()
 const auth = useAuthStore()
 
-const DOW = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日']
+const iconSrc = `${import.meta.env.BASE_URL}icons/icon-192.png`
+
+const DOW = ['日', '月', '火', '水', '木', '金', '土']
 const today = new Date()
 const dateStr = computed(() => {
-  const m = String(today.getMonth() + 1).padStart(2, '0')
-  const d = String(today.getDate()).padStart(2, '0')
-  return `${today.getFullYear()}年${m}月${d}日（${DOW[today.getDay()]}）`
+  const m = today.getMonth() + 1
+  const d = today.getDate()
+  return `${m}月${d}日（${DOW[today.getDay()]}）`
 })
 
 interface NavCard {
@@ -47,16 +49,21 @@ async function handleLogout() {
 
 <template>
   <div class="min-h-screen bg-app dark:bg-app-dark">
-    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark px-4 py-4">
+    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark px-4 py-3">
       <div class="max-w-lg mx-auto flex items-center justify-between gap-3 pr-12">
-        <div>
-          <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">🍢 串在庫管理</h1>
-          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{{ dateStr }}</p>
+        <!-- 左: ロゴ + タイトル + 日付 -->
+        <div class="flex items-center gap-3">
+          <img :src="iconSrc" alt="" class="w-10 h-10 rounded-2xl object-cover shrink-0" />
+          <div>
+            <h1 class="text-base font-bold text-neutral-900 dark:text-neutral-50 leading-tight">串在庫管理</h1>
+            <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">{{ dateStr }}</p>
+          </div>
         </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <span class="text-sm text-neutral-500 dark:text-neutral-400">{{ auth.displayName }}</span>
+        <!-- 右: ユーザー名 + ログアウト -->
+        <div class="flex items-center gap-1.5 shrink-0">
+          <span class="text-xs text-neutral-500 dark:text-neutral-400 max-w-[5rem] truncate">{{ auth.displayName }}</span>
           <button
-            class="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 px-2 py-1 rounded-lg"
+            class="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 px-2 py-1 rounded-lg border border-edge dark:border-edge-dark transition-colors"
             @click="handleLogout"
           >
             ログアウト
