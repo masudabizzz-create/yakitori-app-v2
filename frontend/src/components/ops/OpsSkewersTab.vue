@@ -55,8 +55,6 @@ const addForm = ref({
 
 // アコーディオン（1つだけ開く）
 const expandedIdx = ref<number | null>(null)
-// サブ詳細（発注設定）アコーディオン - 行インデックスの Set
-const expandedSubDetail = ref(new Set<number>())
 
 // 行ごとの保存中フラグ
 const savingRow = ref<number | null>(null)
@@ -197,12 +195,7 @@ function addRow() {
 // ─── アコーディオン ───────────────────────────────────────────────
 
 function toggleExpand(i: number) {
-  if (expandedIdx.value === i) {
-    expandedIdx.value = null
-  } else {
-    expandedIdx.value = i
-    // サブ詳細は開き直す際にリセット
-  }
+  expandedIdx.value = expandedIdx.value === i ? null : i
 }
 
 function closeExpand() {
@@ -211,17 +204,6 @@ function closeExpand() {
 
 function isExpanded(i: number): boolean {
   return expandedIdx.value === i
-}
-
-function toggleSubDetail(i: number) {
-  const s = new Set(expandedSubDetail.value)
-  if (s.has(i)) s.delete(i)
-  else s.add(i)
-  expandedSubDetail.value = s
-}
-
-function isSubDetailExpanded(i: number): boolean {
-  return expandedSubDetail.value.has(i)
 }
 
 // ─── 行ごとの保存 ────────────────────────────────────────────────
@@ -443,23 +425,24 @@ const inputCls = 'w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:
                 <button type="button" class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 text-lg leading-none p-1" @click="closeExpand">✕</button>
               </div>
 
-              <!-- 有効フラグ -->
-              <label class="flex items-center justify-between">
-                <span class="text-sm text-neutral-700 dark:text-neutral-200">有効</span>
+              <!-- 1. 有効フラグ -->
+              <div class="flex items-center gap-3">
+                <span class="text-sm font-medium text-neutral-500 dark:text-neutral-400 w-28 shrink-0">有効</span>
                 <button
                   type="button"
-                  class="relative w-12 h-6 rounded-full transition-colors duration-200"
+                  class="relative inline-flex w-11 h-6 rounded-full transition-colors duration-200 shrink-0"
                   :class="row.is_active ? 'bg-brand-500' : 'bg-neutral-300 dark:bg-neutral-600'"
-                  @click="row.is_active = !row.is_active"
+                  @click.stop="row.is_active = !row.is_active"
                 >
                   <span
-                    class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
-                    :class="row.is_active ? 'translate-x-6' : 'translate-x-0.5'"
+                    class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200"
+                    :class="row.is_active ? 'translate-x-5' : 'translate-x-0'"
                   />
                 </button>
-              </label>
+                <span class="text-sm text-neutral-600 dark:text-neutral-300">{{ row.is_active ? 'ON' : 'OFF' }}</span>
+              </div>
 
-              <!-- 計算単位 -->
+              <!-- 2. 計算単位 -->
               <div>
                 <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">計算単位</label>
                 <input v-model.number="row.unit" type="number" min="0" :class="inputCls" />
@@ -471,7 +454,7 @@ const inputCls = 'w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:
                 <input v-model="row.prep_method_name" type="text" placeholder="昆布締め" :class="inputCls" />
               </div>
 
-              <!-- 曜日別理想在庫 -->
+              <!-- 3. 曜日別理想在庫 -->
               <div v-if="usesIdeal(row.category)">
                 <div class="flex items-center justify-between mb-1">
                   <label class="text-xs font-medium text-neutral-500 dark:text-neutral-400">
@@ -481,12 +464,12 @@ const inputCls = 'w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:
                     編集
                   </button>
                 </div>
-                <p class="text-xs text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-800 rounded-xl px-3 py-2">
+                <p class="text-xs text-neutral-500 dark:text-neutral-400 bg-neutral-50 dark:bg-neutral-800 rounded-xl px-3 py-2 leading-relaxed">
                   {{ idealSummary(row) }}
                 </p>
               </div>
 
-              <!-- 閾値・仕込み量 -->
+              <!-- 4&5. 閾値・仕込み量 -->
               <template v-if="showThresholds(row.category)">
                 <div class="grid grid-cols-2 gap-3">
                   <div>
@@ -508,62 +491,58 @@ const inputCls = 'w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:
                 </div>
               </template>
 
-              <!-- ▼ 詳細設定サブアコーディオン -->
-              <div class="border border-edge dark:border-edge-dark rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  class="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-neutral-600 dark:text-neutral-300 bg-black/[0.02] dark:bg-white/[0.03]"
-                  @click.stop="toggleSubDetail(i)"
-                >
-                  <span>▼ 詳細設定（発注・コース）</span>
-                  <span>{{ isSubDetailExpanded(i) ? '▲' : '▼' }}</span>
-                </button>
-                <div v-if="isSubDetailExpanded(i)" class="px-4 py-3 space-y-3">
-                  <div>
-                    <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">発注単位ラベル</label>
-                    <input v-model="row.order_unit_label" type="text" placeholder="例: kg、1パック" :class="inputCls" />
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">1発注単位あたり（g）</label>
-                    <input v-model.number="row.order_unit_g" type="number" min="0" :class="inputCls" />
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">1本あたり重量（g）</label>
-                    <input v-model.number="row.weight_per_stick_g" type="number" min="0" step="0.1" :class="inputCls" />
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">歩留まり率（%）</label>
-                    <input
-                      :value="yieldPctOf(row)"
-                      type="number"
-                      min="0"
-                      max="100"
-                      :class="inputCls"
-                      @input="setYieldPct(row, Number(($event.target as HTMLInputElement).value))"
-                    />
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">対象コース</label>
-                    <select v-model="row.course_type" :class="inputCls">
-                      <option value="all_courses">全コース</option>
-                      <option value="specific_courses">特定コース</option>
-                    </select>
-                  </div>
-                  <div v-if="row.course_type === 'specific_courses'" class="flex flex-wrap gap-4 text-sm text-neutral-700 dark:text-neutral-200">
-                    <label class="flex items-center gap-1.5">
-                      <input type="checkbox" :checked="row.target_courses.includes('casual')" class="rounded border-edge text-brand-500" @change="toggleTargetCourse(row, 'casual', ($event.target as HTMLInputElement).checked)" />
-                      カジュアル
-                    </label>
-                    <label class="flex items-center gap-1.5">
-                      <input type="checkbox" :checked="row.target_courses.includes('standard')" class="rounded border-edge text-brand-500" @change="toggleTargetCourse(row, 'standard', ($event.target as HTMLInputElement).checked)" />
-                      スタンダード
-                    </label>
-                    <label class="flex items-center gap-1.5">
-                      <input type="checkbox" :checked="row.target_courses.includes('premium')" class="rounded border-edge text-brand-500" @change="toggleTargetCourse(row, 'premium', ($event.target as HTMLInputElement).checked)" />
-                      プレミアム
-                    </label>
-                  </div>
+              <!-- 6. 対象コース -->
+              <div>
+                <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">対象コース</label>
+                <select v-model="row.course_type" :class="inputCls">
+                  <option value="all_courses">全コース</option>
+                  <option value="specific_courses">特定コース</option>
+                </select>
+                <div v-if="row.course_type === 'specific_courses'" class="mt-2 flex flex-wrap gap-4 text-sm text-neutral-700 dark:text-neutral-200">
+                  <label class="flex items-center gap-1.5">
+                    <input type="checkbox" :checked="row.target_courses.includes('casual')" class="rounded border-edge text-brand-500" @change="toggleTargetCourse(row, 'casual', ($event.target as HTMLInputElement).checked)" />
+                    カジュアル
+                  </label>
+                  <label class="flex items-center gap-1.5">
+                    <input type="checkbox" :checked="row.target_courses.includes('standard')" class="rounded border-edge text-brand-500" @change="toggleTargetCourse(row, 'standard', ($event.target as HTMLInputElement).checked)" />
+                    スタンダード
+                  </label>
+                  <label class="flex items-center gap-1.5">
+                    <input type="checkbox" :checked="row.target_courses.includes('premium')" class="rounded border-edge text-brand-500" @change="toggleTargetCourse(row, 'premium', ($event.target as HTMLInputElement).checked)" />
+                    プレミアム
+                  </label>
                 </div>
+              </div>
+
+              <!-- 7. 1本あたり重量 -->
+              <div>
+                <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">1本あたりの重量（g）</label>
+                <input v-model.number="row.weight_per_stick_g" type="number" min="0" step="0.1" :class="inputCls" />
+              </div>
+
+              <!-- 8. 歩留まり率 -->
+              <div>
+                <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">歩留まり率（%）</label>
+                <input
+                  :value="yieldPctOf(row)"
+                  type="number"
+                  min="0"
+                  max="100"
+                  :class="inputCls"
+                  @input="setYieldPct(row, Number(($event.target as HTMLInputElement).value))"
+                />
+              </div>
+
+              <!-- 9. 発注単位ラベル -->
+              <div>
+                <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">発注単位ラベル</label>
+                <input v-model="row.order_unit_label" type="text" placeholder="例: kg、1パック" :class="inputCls" />
+              </div>
+
+              <!-- 10. 1発注単位あたり -->
+              <div>
+                <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">1発注単位あたり（g）</label>
+                <input v-model.number="row.order_unit_g" type="number" min="0" :class="inputCls" />
               </div>
 
               <!-- 保存 / 削除ボタン -->
