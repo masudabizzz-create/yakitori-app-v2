@@ -7,13 +7,12 @@ import type { AppUser, UserRole, UserInvitation } from '@/types'
 const usersStore = useUsersStore()
 
 const ROLES: { value: UserRole; label: string }[] = [
-  { value: 'super_admin', label: 'スーパー管理者' },
-  { value: 'tenant_admin', label: 'テナント管理者' },
-  { value: 'admin', label: '管理者' },
-  { value: 'manager', label: 'マネージャー' },
-  { value: 'user', label: 'スタッフ' },
-  { value: 'kitchen', label: 'キッチン' },
-  { value: 'hall', label: 'ホール' },
+  { value: 'platform_admin', label: 'プラットフォーム管理者' },
+  { value: 'store_owner',    label: '店舗責任者' },
+  { value: 'manager',        label: 'マネージャー' },
+  { value: 'staff_both',     label: 'スタッフ兼務' },
+  { value: 'staff_kitchen',  label: 'スタッフキッチン' },
+  { value: 'staff_hall',     label: 'スタッフホール' },
 ]
 
 // ─── スタッフ一覧・編集 ───────────────────────────────────────────────
@@ -67,7 +66,7 @@ async function executeDelete() {
 }
 
 // ─── QRコード発行 ────────────────────────────────────────────────────
-const qrRole = ref<UserRole>('user')
+const qrRole = ref<UserRole>('staff_both')
 const generating = ref(false)
 const generateErr = ref('')
 const qrDataUrl = ref('')

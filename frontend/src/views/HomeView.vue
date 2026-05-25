@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import type { UserRole } from '@/types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -21,23 +22,35 @@ interface NavCard {
   label: string
   desc: string
   to: string
-  minRole?: 'manager' | 'admin'
+  /** 未指定 = 認証済みなら全ロール表示 */
+  allowedRoles?: UserRole[]
 }
 
 const navCards: NavCard[] = [
-  { emoji: '📝', label: '営業後入力', desc: '在庫入力・LINE送信', to: '/input' },
-  { emoji: '🔪', label: '仕込みダッシュボード', desc: '明日の仕込みを確認', to: '/dashboard' },
-  { emoji: '📊', label: '分析・集計', desc: '売上・曜日別トレンド', to: '/analytics' },
-  { emoji: '📦', label: '発注推定', desc: '週間来客数から発注量を算出', to: '/order' },
-  { emoji: '🔧', label: '運用管理', desc: '串マスタ・理想在庫・コース設定', to: '/admin/ops', minRole: 'manager' },
-  { emoji: '⚙️', label: 'システム管理', desc: 'スタッフ・LINE設定', to: '/admin/sys', minRole: 'admin' },
+  { emoji: '📝', label: '営業後入力',         desc: '在庫入力・LINE送信',        to: '/input' },
+  { emoji: '🔪', label: '仕込みダッシュボード', desc: '明日の仕込みを確認',        to: '/dashboard' },
+  {
+    emoji: '📊', label: '分析・集計', desc: '売上・曜日別トレンド', to: '/analytics',
+    allowedRoles: ['platform_admin', 'staff_both'],
+  },
+  {
+    emoji: '📦', label: '発注推定', desc: '週間来客数から発注量を算出', to: '/order',
+    allowedRoles: ['platform_admin', 'manager', 'store_owner'],
+  },
+  {
+    emoji: '🔧', label: '運用管理', desc: '串マスタ・発注スケジュール', to: '/admin/ops',
+    allowedRoles: ['platform_admin', 'manager', 'store_owner'],
+  },
+  {
+    emoji: '⚙️', label: 'システム管理', desc: 'スタッフ・LINE設定', to: '/admin/sys',
+    allowedRoles: ['platform_admin', 'store_owner'],
+  },
 ]
 
 const visibleCards = computed(() =>
   navCards.filter((c) => {
-    if (!c.minRole) return true
-    if (c.minRole === 'manager') return auth.isManager
-    return auth.isAdmin
+    if (!c.allowedRoles) return true
+    return auth.role !== null && c.allowedRoles.includes(auth.role)
   })
 )
 

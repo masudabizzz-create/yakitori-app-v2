@@ -156,6 +156,7 @@ npx tsx migrate_from_gas.ts
 | `supabase/migrations/005_qr_invitation.sql` | QRコード招待フロー対応（token / expires_at カラム追加） |
 | `supabase/migrations/006_delivery_blackouts.sql` | 発注イレギュラー管理再設計（旧テーブル廃止・新2テーブル作成） |
 | `supabase/migrations/007_prep_logs.sql` | 仕込み完了ログテーブル（prep_logs）新規作成 |
+| `supabase/migrations/008_new_roles.sql` | **ロール設計全面刷新**（既存データ移行 + RLS更新）|
 
 004 の内容:
 - `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
@@ -176,6 +177,13 @@ npx tsx migrate_from_gas.ts
 - 新テーブル `delivery_blackout_periods`（納品不可期間）を作成
 - 新テーブル `delivery_irregular_dates`（イレギュラー納品日）を作成
 - 両テーブルに RLS ポリシー（参照: 全ロール / 変更: manager 以上）を追加
+
+008 の内容:
+- ロール名を刷新（`super_admin`→`platform_admin` / `tenant_admin`,`admin`→`store_owner` / `user`→`staff_both` / `kitchen`→`staff_kitchen` / `hall`→`staff_hall`）
+- 既存 users・user_invitations のロールデータを自動移行（UPDATE文）
+- 全テーブルの RLS ポリシーを新ロール名に更新
+- `prep_logs` の DELETE を「自分の記録のみ」に制限（manager以上は全件削除可）
+- `is_active = false` スタッフはルートガードで強制ログアウト（フロントエンド制御）
 
 ---
 

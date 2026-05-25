@@ -9,13 +9,12 @@ const route = useRoute()
 const router = useRouter()
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  super_admin: 'スーパー管理者',
-  tenant_admin: 'テナント管理者',
-  admin: '管理者',
-  manager: 'マネージャー',
-  user: 'スタッフ',
-  kitchen: 'キッチン',
-  hall: 'ホール',
+  platform_admin: 'プラットフォーム管理者',
+  store_owner:    '店舗責任者',
+  manager:        'マネージャー',
+  staff_both:     'スタッフ兼務',
+  staff_kitchen:  'スタッフキッチン',
+  staff_hall:     'スタッフホール',
 }
 
 // トークン検証

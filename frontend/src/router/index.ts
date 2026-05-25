@@ -5,7 +5,8 @@ import type { UserRole } from '@/types'
 declare module 'vue-router' {
   interface RouteMeta {
     requiresAuth?: boolean
-    minRole?: UserRole
+    /** 許可するロールの配列。未指定 = 認証済みなら全ロール可 */
+    allowedRoles?: UserRole[]
     title?: string
   }
 }
@@ -32,40 +33,62 @@ const router = createRouter({
       meta: { requiresAuth: true, title: 'ホーム' },
     },
     {
+      // 全ロールアクセス可（staff_kitchen は串在庫入力、staff_hall は営業日報入力）
       path: '/input',
       name: 'input',
       component: () => import('@/views/InputView.vue'),
-      meta: { requiresAuth: true, minRole: 'user', title: '営業後入力' },
+      meta: { requiresAuth: true, title: '営業後入力' },
     },
     {
+      // 全ロールアクセス可
       path: '/dashboard',
       name: 'dashboard',
       component: () => import('@/views/DashboardView.vue'),
-      meta: { requiresAuth: true, minRole: 'user', title: '仕込みダッシュボード' },
+      meta: { requiresAuth: true, title: '仕込みダッシュボード' },
     },
     {
+      // platform_admin / staff_both のみ
       path: '/analytics',
       name: 'analytics',
       component: () => import('@/views/AnalyticsView.vue'),
-      meta: { requiresAuth: true, minRole: 'user', title: '分析・集計' },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin', 'staff_both'],
+        title: '分析・集計',
+      },
     },
     {
+      // platform_admin / manager / store_owner のみ
       path: '/order',
       name: 'order',
       component: () => import('@/views/OrderView.vue'),
-      meta: { requiresAuth: true, minRole: 'user', title: '発注推定' },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin', 'manager', 'store_owner'],
+        title: '発注推定',
+      },
     },
     {
+      // platform_admin / manager / store_owner のみ
       path: '/admin/ops',
       name: 'ops-admin',
       component: () => import('@/views/OpsAdminView.vue'),
-      meta: { requiresAuth: true, minRole: 'manager', title: '運用管理' },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin', 'manager', 'store_owner'],
+        title: '運用管理',
+      },
     },
     {
+      // platform_admin / store_owner のみ
       path: '/admin/sys',
       name: 'sys-admin',
       component: () => import('@/views/SysAdminView.vue'),
-      meta: { requiresAuth: true, minRole: 'admin', title: 'システム管理' },
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin', 'store_owner'],
+        title: 'システム管理',
+      },
     },
     {
       path: '/:pathMatch(.*)*',
@@ -73,21 +96,6 @@ const router = createRouter({
     },
   ],
 })
-
-const ROLE_RANK: Record<UserRole, number> = {
-  hall: 1,
-  kitchen: 1,
-  user: 1,
-  manager: 2,
-  admin: 3,
-  tenant_admin: 4,
-  super_admin: 5,
-}
-
-function hasRole(actual: UserRole | null, required: UserRole): boolean {
-  if (!actual) return false
-  return ROLE_RANK[actual] >= ROLE_RANK[required]
-}
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
@@ -102,13 +110,23 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
+  // is_active チェック: 無効化されたスタッフは強制ログアウト
+  if (auth.isAuthenticated && auth.appUser?.is_active === false) {
+    await auth.logout()
+    return { name: 'login' }
+  }
+
   // 認証済みでログイン画面へ → ホームへ
   if (to.name === 'login' && auth.isAuthenticated) {
     return { name: 'home' }
   }
 
-  // ロール不足 → ホームへ
-  if (to.meta.minRole && !hasRole(auth.role, to.meta.minRole)) {
+  // ロールチェック: allowedRoles が設定されていて該当しない → ホームへ
+  if (
+    to.meta.allowedRoles &&
+    auth.role !== null &&
+    !to.meta.allowedRoles.includes(auth.role)
+  ) {
     return { name: 'home' }
   }
 

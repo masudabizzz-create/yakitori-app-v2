@@ -3,13 +3,12 @@
 // ============================================================
 
 export type UserRole =
-  | 'super_admin'
-  | 'tenant_admin'
-  | 'admin'
-  | 'manager'
-  | 'user'
-  | 'kitchen'
-  | 'hall'
+  | 'platform_admin'  // プラットフォーム管理者（全店舗管理）
+  | 'manager'         // マネージャー（担当店舗横断可）
+  | 'store_owner'     // 店舗責任者（自店舗のみ）
+  | 'staff_both'      // スタッフ兼務（キッチン・ホール両方）
+  | 'staff_kitchen'   // スタッフキッチン（串在庫入力）
+  | 'staff_hall'      // スタッフホール（営業日報入力）
 
 export type InvitationStatus = 'pending' | 'approved' | 'rejected' | 'used'
 
