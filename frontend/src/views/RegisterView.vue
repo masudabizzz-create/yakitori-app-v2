@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { supabase } from '@/lib/supabase'
 import { extractFnError } from '@/lib/fn-error'
 import type { UserRole } from '@/types'
 
 const route = useRoute()
+const router = useRouter()
 
 const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: 'スーパー管理者',
@@ -90,6 +91,8 @@ async function submit() {
       submitErr.value = await extractFnError(error, data)
     } else {
       success.value = true
+      // メール確認なしのため登録完了後すぐにログイン画面へ
+      setTimeout(() => router.push('/login'), 1500)
     }
   } catch (e) {
     submitErr.value = e instanceof Error ? e.message : '登録に失敗しました'
@@ -125,16 +128,7 @@ async function submit() {
       <div v-else-if="success" class="bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-2xl px-5 py-6 space-y-3 text-center">
         <p class="text-3xl">✅</p>
         <p class="text-base font-semibold text-green-700 dark:text-green-400">登録が完了しました！</p>
-        <p class="text-sm text-neutral-600 dark:text-neutral-400">
-          確認メールを送信しました。<br />
-          メール内のリンクをタップしてアカウントを有効化してください。
-        </p>
-        <router-link
-          to="/login"
-          class="block mt-2 text-sm text-brand-500 hover:underline font-medium"
-        >
-          ログイン画面へ →
-        </router-link>
+        <p class="text-sm text-neutral-600 dark:text-neutral-400">ログイン画面へ移動します...</p>
       </div>
 
       <!-- 登録フォーム -->
@@ -213,9 +207,6 @@ async function submit() {
           {{ submitting ? '登録中...' : '登録する' }}
         </button>
 
-        <p class="text-xs text-center text-neutral-400 dark:text-neutral-500">
-          登録後、確認メールが届きます。メール内のリンクをタップしてアカウントを有効化してください。
-        </p>
       </template>
 
     </div>

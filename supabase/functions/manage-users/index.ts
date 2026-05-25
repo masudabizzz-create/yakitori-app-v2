@@ -125,12 +125,12 @@ Deno.serve(async (req) => {
       return json(400, { error: 'このメールアドレスはすでに登録されています' })
     }
 
-    // Auth ユーザーを作成（email_confirm: false → 確認メール送信）
+    // Auth ユーザーを作成（email_confirm: true → 確認メールなしで即時有効化）
     const { data: newAuthUser, error: createErr } =
       await supabaseAdmin.auth.admin.createUser({
         email: email as string,
         password: password as string,
-        email_confirm: false,
+        email_confirm: true,
       })
     if (createErr) {
       return json(500, { error: `ユーザー作成失敗: ${createErr.message}` })
