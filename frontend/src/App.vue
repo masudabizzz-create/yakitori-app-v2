@@ -27,7 +27,7 @@ onMounted(() => {
     <span v-else>🌙</span>
   </button>
 
-  <RouterView v-if="!auth.loading" />
+  <RouterView v-if="!auth.loading" :key="auth.effectiveTenantId" />
   <div
     v-else
     class="min-h-screen flex items-center justify-center bg-app dark:bg-app-dark"

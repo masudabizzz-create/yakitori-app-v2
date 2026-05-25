@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import TenantSwitcher from '@/components/TenantSwitcher.vue'
 import type { UserRole } from '@/types'
 
 const router = useRouter()
@@ -72,8 +73,9 @@ async function handleLogout() {
             <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">{{ dateStr }}</p>
           </div>
         </div>
-        <!-- 右: ユーザー名 + ログアウト -->
-        <div class="flex items-center gap-1.5 shrink-0">
+        <!-- 右: 店舗切り替え + ユーザー名 + ログアウト -->
+        <div class="flex items-center gap-2 shrink-0">
+          <TenantSwitcher />
           <span class="text-xs text-neutral-500 dark:text-neutral-400 max-w-[5rem] truncate">{{ auth.displayName }}</span>
           <button
             class="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 px-2 py-1 rounded-lg border border-edge dark:border-edge-dark transition-colors"

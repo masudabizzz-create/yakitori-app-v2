@@ -159,6 +159,7 @@ npx tsx migrate_from_gas.ts
 | `supabase/migrations/008_new_roles.sql` | **ロール設計全面刷新**（既存データ移行 + RLS更新）|
 | `supabase/migrations/009_tenants_platform_admin_only.sql` | 店舗作成（INSERT）を `platform_admin` のみに制限 |
 | `supabase/migrations/010_platform_admin_cross_tenant.sql` | `platform_admin` が全テナントのデータを読み書き可能に |
+| `supabase/migrations/011_user_tenant_permissions.sql` | `manager` が複数店舗にアクセスできる権限テーブルと RLS 更新 |
 
 004 の内容:
 - `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
@@ -195,6 +196,18 @@ npx tsx migrate_from_gas.ts
   - `tenants`（SELECT: 全テナント一覧表示）
   - `skewers` / `settings` / `order_schedules` / `delivery_blackout_periods` / `delivery_irregular_dates`
 - 店舗作成後の初期設定フローを有効化（`/admin/ops?tenant=<id>` による店舗コンテキスト切り替え）
+
+011 の内容:
+- `user_tenant_permissions` テーブルを作成（`manager` が複数店舗にアクセスするための権限テーブル）
+- `has_tenant_access(check_tenant_id uuid)` PostgreSQL 関数を追加（platform_admin / 自テナント / 権限登録済みで true）
+- 全テーブルの SELECT/WRITE ポリシーを `has_tenant_access()` ベースに更新
+  - `tenants`, `users`, `skewers`, `settings`, `order_schedules`, `delivery_blackout_periods`, `delivery_irregular_dates`
+  - `daily_logs`, `daily_log_stocks`, `prep_logs`
+- `manager` への権限付与は Supabase Dashboard の SQL Editor で INSERT を実行：
+  ```sql
+  INSERT INTO public.user_tenant_permissions (user_id, tenant_id)
+  VALUES ('<manager の user UUID>', '<アクセスを許可する tenant UUID>');
+  ```
 
 ---
 

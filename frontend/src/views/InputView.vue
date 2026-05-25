@@ -10,6 +10,7 @@ import { calcPrep, calcTotalSkewers } from '@/composables/useInventoryCalc'
 import { notifyDailyReport } from '@/composables/useLineNotify'
 import StepperInput from '@/components/StepperInput.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import TenantSwitcher from '@/components/TenantSwitcher.vue'
 import type { DailyInputForm, SkewerCategory } from '@/types'
 
 const router = useRouter()
@@ -103,11 +104,11 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
-    const tenantId = auth.appUser?.tenant_id
+    const tenantId = auth.effectiveTenantId
     await Promise.all([
       skewersStore.fetchActive(tenantId),
       settingsStore.fetchSettings(tenantId),
-      usersStore.fetchAll(),
+      usersStore.fetchAll(tenantId),
     ])
     if (skewersStore.error) throw new Error(skewersStore.error)
     if (settingsStore.error) throw new Error(settingsStore.error)
@@ -152,7 +153,7 @@ async function handleSubmit() {
   lineWarning.value = ''
   try {
     const s = settingsStore.settings
-    const tenantId = auth.appUser?.tenant_id
+    const tenantId = auth.effectiveTenantId
     if (!s || !tenantId) throw new Error('設定の読み込みが完了していません')
 
     // Supabase に保存
@@ -222,6 +223,7 @@ async function handleSubmit() {
       <div class="max-w-lg mx-auto flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
         <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">営業後入力</h1>
+        <div class="ml-auto"><TenantSwitcher /></div>
       </div>
     </header>
 

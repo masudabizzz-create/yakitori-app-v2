@@ -11,6 +11,7 @@ import {
   type EqualOrderQty,
 } from '@/composables/useInventoryCalc'
 import { isHolidayYmd } from '@/composables/useHolidays'
+import TenantSwitcher from '@/components/TenantSwitcher.vue'
 import type { DeliveryBlackoutPeriod } from '@/types'
 
 const auth = useAuthStore()
@@ -319,7 +320,7 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
-    const tenantId = auth.appUser?.tenant_id
+    const tenantId = auth.effectiveTenantId
     loadLocal()
     await Promise.all([skewersStore.fetchActive(tenantId), orderScheduleStore.fetchAll(tenantId)])
     if (skewersStore.error) throw new Error(skewersStore.error)
@@ -341,6 +342,7 @@ onMounted(async () => {
       <div class="max-w-lg mx-auto flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
         <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">発注推定</h1>
+        <div class="ml-auto"><TenantSwitcher /></div>
       </div>
     </header>
 

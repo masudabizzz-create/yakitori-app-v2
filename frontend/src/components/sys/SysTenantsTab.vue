@@ -3,11 +3,13 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTenantsStore } from '@/stores/tenants'
 import { useAuthStore } from '@/stores/auth'
+import { useTenantPermissionsStore } from '@/stores/tenantPermissions'
 import type { Tenant } from '@/types'
 
 const router = useRouter()
 const tenantsStore = useTenantsStore()
 const auth = useAuthStore()
+const permStore = useTenantPermissionsStore()
 
 const editRows = ref<{ id: string; name: string }[]>([])
 const saving = ref<string | null>(null)
@@ -27,9 +29,17 @@ const deleteConfirmId = ref<string | null>(null)
 const deleting = ref(false)
 const deleteErr = ref('')
 
+// マネージャー権限セクションの展開状態（tenantId -> boolean）
+const expandedPerms = ref<Record<string, boolean>>({})
+const permToggling = ref<string | null>(null)  // '<userId>:<tenantId>'
+const permErr = ref('')
+
 onMounted(async () => {
   await tenantsStore.fetchAll()
   syncRows()
+  if (auth.role === 'platform_admin') {
+    await permStore.fetchAll()
+  }
 })
 
 function syncRows() {
@@ -77,7 +87,8 @@ async function createTenant() {
 
 function goToSetup(tenantId: string) {
   setupPromptTenantId.value = null
-  router.push(`/admin/ops?tenant=${tenantId}`)
+  auth.setActiveTenantId(tenantId)
+  router.push('/admin/ops')
 }
 
 async function executeDelete() {
@@ -98,6 +109,28 @@ async function executeDelete() {
 function tenantName(id: string): string {
   return tenantsStore.tenants.find((t: Tenant) => t.id === id)?.name ?? ''
 }
+
+function togglePermSection(tenantId: string) {
+  expandedPerms.value[tenantId] = !expandedPerms.value[tenantId]
+  permErr.value = ''
+}
+
+async function handlePermToggle(userId: string, tenantId: string) {
+  const key = `${userId}:${tenantId}`
+  permToggling.value = key
+  permErr.value = ''
+  try {
+    await permStore.togglePermission(userId, tenantId)
+  } catch (e) {
+    permErr.value = e instanceof Error ? e.message : '権限の変更に失敗しました'
+  } finally {
+    permToggling.value = null
+  }
+}
+
+function hasPermission(userId: string, tenantId: string): boolean {
+  return permStore.managerIdsForTenant(tenantId).includes(userId)
+}
 </script>
 
 <template>
@@ -115,6 +148,7 @@ function tenantName(id: string): string {
       </div>
       <ul v-else class="divide-y divide-edge dark:divide-edge-dark">
         <li v-for="row in editRows" :key="row.id" class="px-4 py-3 space-y-2">
+          <!-- 店舗名 + 保存 + 削除 -->
           <div class="flex items-center gap-2">
             <input
               v-model="row.name"
@@ -138,15 +172,77 @@ function tenantName(id: string): string {
               削除
             </button>
           </div>
-          <!-- 設定するボタン（platform_admin のみ） -->
-          <div v-if="auth.role === 'platform_admin'" class="flex justify-end">
+
+          <!-- platform_admin 専用アクション -->
+          <div v-if="auth.role === 'platform_admin'" class="flex items-center justify-between gap-2">
+            <!-- 運用管理へ -->
             <button
               type="button"
               class="text-xs text-brand-500 hover:underline"
-              @click="router.push(`/admin/ops?tenant=${row.id}`)"
+              @click="() => { auth.setActiveTenantId(row.id); router.push('/admin/ops') }"
             >
               ⚙️ 運用管理を設定する →
             </button>
+            <!-- マネージャー権限トグル -->
+            <button
+              type="button"
+              class="text-xs flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 transition-colors"
+              @click="togglePermSection(row.id)"
+            >
+              <span>👥 マネージャー権限</span>
+              <span class="text-[10px]">{{ expandedPerms[row.id] ? '▲' : '▾' }}</span>
+            </button>
+          </div>
+
+          <!-- マネージャー権限セクション（展開時） -->
+          <div
+            v-if="auth.role === 'platform_admin' && expandedPerms[row.id]"
+            class="rounded-xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 px-3 py-2.5 space-y-1.5"
+          >
+            <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">
+              この店舗にアクセスできるマネージャー
+            </p>
+
+            <p
+              v-if="permStore.loading"
+              class="text-xs text-neutral-400 dark:text-neutral-500"
+            >
+              読み込み中...
+            </p>
+            <p
+              v-else-if="permStore.managers.length === 0"
+              class="text-xs text-neutral-400 dark:text-neutral-500"
+            >
+              マネージャーが登録されていません
+            </p>
+            <template v-else>
+              <label
+                v-for="mgr in permStore.managers"
+                :key="mgr.id"
+                class="flex items-center gap-2.5 cursor-pointer py-0.5 group"
+              >
+                <input
+                  type="checkbox"
+                  :checked="hasPermission(mgr.id, row.id)"
+                  :disabled="permToggling === `${mgr.id}:${row.id}`"
+                  class="rounded border-neutral-300 dark:border-neutral-600 text-brand-500 focus:ring-brand-500 disabled:opacity-50"
+                  @change="handlePermToggle(mgr.id, row.id)"
+                />
+                <span class="text-sm text-neutral-700 dark:text-neutral-200 group-hover:text-neutral-900 dark:group-hover:text-white transition-colors">
+                  {{ mgr.name || mgr.id.slice(0, 8) }}
+                </span>
+                <span
+                  v-if="mgr.tenant_id !== row.id"
+                  class="text-xs text-neutral-400 dark:text-neutral-500"
+                >
+                  （他店舗）
+                </span>
+              </label>
+            </template>
+
+            <p v-if="permErr" class="text-xs text-red-500 dark:text-red-400 pt-1">
+              {{ permErr }}
+            </p>
           </div>
         </li>
       </ul>

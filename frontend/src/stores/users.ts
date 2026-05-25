@@ -17,14 +17,12 @@ export const useUsersStore = defineStore('users', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  /** 同一テナントの全スタッフを取得する（RLS により自テナントのみ） */
-  async function fetchAll(): Promise<void> {
+  /** スタッフ一覧を取得する（tenantId 指定時はそのテナントのみ、省略時は RLS フィルタ） */
+  async function fetchAll(tenantId?: string): Promise<void> {
     loading.value = true
     error.value = null
-    const { data, error: err } = await supabase
-      .from('users')
-      .select('*')
-      .order('created_at')
+    const q = supabase.from('users').select('*').order('created_at')
+    const { data, error: err } = await (tenantId ? q.eq('tenant_id', tenantId) : q)
     if (err) {
       error.value = err.message
     } else {

@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import SysStaffTab from '@/components/sys/SysStaffTab.vue'
 import SysSettingsTab from '@/components/sys/SysSettingsTab.vue'
 import SysTenantsTab from '@/components/sys/SysTenantsTab.vue'
+import TenantSwitcher from '@/components/TenantSwitcher.vue'
 
 type TabKey = 'staff' | 'tenants' | 'settings'
 
@@ -40,9 +41,9 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
-    const tenantId = auth.appUser?.tenant_id
+    const tenantId = auth.effectiveTenantId
     await Promise.all([
-      usersStore.fetchAll(),
+      usersStore.fetchAll(tenantId),
       usersStore.fetchInvitations(),
       settingsStore.fetchSettings(tenantId),
       tenantsStore.fetchAll(),
@@ -65,6 +66,7 @@ onMounted(async () => {
       <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
         <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">システム管理</h1>
+        <div class="ml-auto"><TenantSwitcher /></div>
       </div>
       <div class="max-w-lg mx-auto px-4 flex">
         <button

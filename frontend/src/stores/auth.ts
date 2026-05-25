@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import type { AppUser, UserRole } from '@/types'
+import type { AppUser, Tenant, UserRole } from '@/types'
 
 /**
  * 認証ストア
@@ -13,10 +13,12 @@ export const useAuthStore = defineStore('auth', () => {
   const appUser = ref<AppUser | null>(null)
   const loading = ref(true)
   /**
-   * platform_admin が別テナントのコンテキストで操作する際に設定するテナントID。
+   * platform_admin / manager が別テナントのコンテキストで操作する際に設定するテナントID。
    * undefined のときは appUser.tenant_id（自テナント）を使用する。
    */
   const activeTenantId = ref<string | undefined>(undefined)
+  /** アクセス可能な全店舗一覧（RLS によって自動フィルタリング） */
+  const accessibleTenants = ref<Tenant[]>([])
   // 初期化処理を共有 Promise として保持する（複数呼び出しを単一の完了に集約）
   let initPromise: Promise<void> | null = null
 
@@ -64,13 +66,14 @@ export const useAuthStore = defineStore('auth', () => {
         } else {
           appUser.value = null
           activeTenantId.value = undefined
+          accessibleTenants.value = []
         }
       })
     })()
     return initPromise
   }
 
-  /** users テーブルから自分のレコードを取得する。 */
+  /** users テーブルから自分のレコードを取得し、アクセス可能な店舗一覧も更新する。 */
   async function fetchAppUser(): Promise<void> {
     if (!authUser.value) return
     const { data, error } = await supabase
@@ -79,6 +82,21 @@ export const useAuthStore = defineStore('auth', () => {
       .eq('id', authUser.value.id)
       .single()
     appUser.value = error ? null : (data as AppUser)
+    // ユーザー情報確定後にアクセス可能店舗を取得する
+    await fetchAccessibleTenants()
+  }
+
+  /** アクセス可能な店舗一覧を取得する（RLS によって自動フィルタリング）。 */
+  async function fetchAccessibleTenants(): Promise<void> {
+    if (!authUser.value) {
+      accessibleTenants.value = []
+      return
+    }
+    const { data } = await supabase
+      .from('tenants')
+      .select('*')
+      .order('created_at')
+    accessibleTenants.value = (data ?? []) as Tenant[]
   }
 
   /** メール + パスワードでログインする。 */
@@ -88,11 +106,16 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * 操作対象テナントを切り替える（platform_admin 専用）。
+   * 操作対象テナントを切り替える（platform_admin / manager 利用可）。
    * undefined を渡すと自テナントに戻る。
+   * store_owner 以下は undefined のみ受け付け（自テナントリセット）。
    */
   function setActiveTenantId(id: string | undefined): void {
-    if (role.value === 'platform_admin' || id === undefined) {
+    if (
+      id === undefined ||
+      role.value === 'platform_admin' ||
+      role.value === 'manager'
+    ) {
       activeTenantId.value = id
     }
   }
@@ -103,6 +126,7 @@ export const useAuthStore = defineStore('auth', () => {
     authUser.value = null
     appUser.value = null
     activeTenantId.value = undefined
+    accessibleTenants.value = []
   }
 
   /** ログイン中ユーザー自身のパスワードを変更する（Supabase Auth）。 */
@@ -122,9 +146,11 @@ export const useAuthStore = defineStore('auth', () => {
     displayName,
     activeTenantId,
     effectiveTenantId,
+    accessibleTenants,
     setActiveTenantId,
     initialize,
     fetchAppUser,
+    fetchAccessibleTenants,
     login,
     logout,
     updatePassword,

@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import type { SkewerCategory } from '@/types'
 import CategoryTabs from '@/components/CategoryTabs.vue'
 import PrepCard from '@/components/PrepCard.vue'
+import TenantSwitcher from '@/components/TenantSwitcher.vue'
 
 const skewersStore = useSkewersStore()
 const settingsStore = useSettingsStore()
@@ -192,7 +193,7 @@ const sortedResults = computed(() => {
 const completeError = ref('')
 
 async function handleComplete(result: PrepResult, durationSeconds?: number) {
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   const userId = auth.appUser?.id ?? null
   if (!tenantId || !prepDate.value) return
   completeError.value = ''
@@ -216,7 +217,7 @@ async function handleComplete(result: PrepResult, durationSeconds?: number) {
 // ─── 取り消し ─────────────────────────────────────────────────
 
 async function handleUndo(result: PrepResult) {
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   if (!tenantId || !prepDate.value) return
   completeError.value = ''
   try {
@@ -233,7 +234,7 @@ const extraSkewers = computed(() =>
 )
 
 async function submitExtraPrep() {
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   const userId = auth.appUser?.id ?? null
   if (!tenantId || !prepDate.value) return
   const skewer = extraSkewers.value.find((s) => s.id === extraForm.value.skewerId)
@@ -269,8 +270,7 @@ async function submitExtraPrep() {
 onMounted(async () => {
   loading.value = true
   loadError.value = ''
-  // ダッシュボードは常に自テナントのデータを表示する
-  const tenantId = auth.appUser?.tenant_id
+  const tenantId = auth.effectiveTenantId
   try {
     await Promise.all([
       skewersStore.fetchActive(tenantId),
@@ -292,7 +292,12 @@ onMounted(async () => {
         // prep_logs の変更 → 完了ステータスを即時更新
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'prep_logs' },
+          {
+            event: '*',
+            schema: 'public',
+            table: 'prep_logs',
+            filter: `tenant_id=eq.${tenantId}`,
+          },
           async () => {
             const pd = prepDate.value
             if (pd) await prepLogsStore.fetchByDate(tenantId, pd)
@@ -301,7 +306,11 @@ onMounted(async () => {
         // daily_log_stocks の変更 → 在庫データ + 仕込み量を再計算
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'daily_log_stocks' },
+          {
+            event: '*',
+            schema: 'public',
+            table: 'daily_log_stocks',
+          },
           async () => {
             await dailyLogStore.fetchLatest()
             const pd = prepDate.value
@@ -344,6 +353,7 @@ onUnmounted(() => {
       <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
         <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">仕込みダッシュボード</h1>
+        <div class="ml-auto"><TenantSwitcher /></div>
       </div>
       <!-- 接続状態 + タイマー切替行 -->
       <div class="max-w-lg mx-auto px-4 pb-2 flex items-center justify-between">
