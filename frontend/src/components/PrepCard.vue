@@ -10,12 +10,12 @@ const props = defineProps<{
   result: PrepResult
   /** 完了済みフラグ（trueでグレーアウト） */
   completed?: boolean
-  /** 長押しタイマー機能の有効フラグ */
+  /** タイマー機能の有効フラグ（2タップ方式） */
   timerEnabled?: boolean
 }>()
 
 const emit = defineEmits<{
-  /** 完了ボタン押下。durationSeconds は長押しタイマー使用時のみ渡される */
+  /** 完了ボタン押下。durationSeconds はタイマー使用時のみ渡される */
   complete: [durationSeconds?: number]
   /** 完了を取り消す */
   undo: []
@@ -27,18 +27,14 @@ const stockText = computed(() =>
   formatStockDisplay(props.result.category, props.result.stock),
 )
 
-// ─── 長押しタイマー ───────────────────────────────────────────
-// iOS Safari は長押し時に pointercancel を発火させるため
-// touchstart.prevent + touchend/touchcancel に切り替え、
-// デスクトップ向けには mousedown/mouseup を併用する。
+// ─── 2タップタイマー ───────────────────────────────────────────
+// 長押し検出を廃止。1回目タップでタイマー開始、2回目タップで完了記録。
+// iOS Safari の pointercancel 問題を根本回避。
 
 const timing = ref(false)   // 計測中フラグ
 const elapsedMs = ref(0)    // 経過ミリ秒
-let pressTimer: ReturnType<typeof setTimeout> | null = null
 let tickTimer: ReturnType<typeof setInterval> | null = null
 let tickStart = 0
-// タッチ操作済みフラグ（mousedown の二重発火防止）
-let isTouching = false
 
 const elapsedLabel = computed(() => {
   const s = Math.floor(elapsedMs.value / 1000)
@@ -46,78 +42,46 @@ const elapsedLabel = computed(() => {
   return m > 0 ? `${m}分${s % 60}秒` : `${s}秒`
 })
 
-function clearTimers() {
-  if (pressTimer !== null) { clearTimeout(pressTimer); pressTimer = null }
+function clearTick() {
   if (tickTimer !== null) { clearInterval(tickTimer); tickTimer = null }
 }
 
-function onStart() {
+/** ✓ / 完了ボタンをタップ */
+function onCompleteClick() {
   if (props.completed || !needsPrep.value) return
-  timing.value = false
-  elapsedMs.value = 0
-  if (props.timerEnabled) {
-    pressTimer = setTimeout(() => {
-      timing.value = true
-      tickStart = Date.now()
-      tickTimer = setInterval(() => {
-        elapsedMs.value = Date.now() - tickStart
-      }, 100)
-    }, 600)
-  }
-}
 
-function onEnd() {
-  if (props.completed || !needsPrep.value) return
-  if (timing.value) {
-    clearTimers()
+  if (!props.timerEnabled) {
+    // タイマーなし: 即完了
+    emit('complete')
+    return
+  }
+
+  if (!timing.value) {
+    // 1回目タップ: タイマー開始
+    timing.value = true
+    tickStart = Date.now()
+    elapsedMs.value = 0
+    tickTimer = setInterval(() => {
+      elapsedMs.value = Date.now() - tickStart
+    }, 100)
+  } else {
+    // 2回目タップ: タイマー停止 + 完了記録
+    clearTick()
     const dur = Math.round(elapsedMs.value / 1000)
     timing.value = false
     elapsedMs.value = 0
     emit('complete', dur > 0 ? dur : undefined)
-  } else {
-    clearTimers()
-    emit('complete')
   }
 }
 
-function onCancel() {
-  clearTimers()
+/** ✕ボタン: タイマーをキャンセルして未完了に戻す */
+function onCancelTimer() {
+  clearTick()
   timing.value = false
   elapsedMs.value = 0
 }
 
-// タッチイベント（モバイル）: prevent でブラウザ介入を遮断
-function onTouchStart(e: TouchEvent) {
-  e.preventDefault()
-  isTouching = true
-  onStart()
-}
-function onTouchEnd(e: TouchEvent) {
-  e.preventDefault()
-  onEnd()
-  // タッチ終了後に isTouching を少し遅らせてリセット（click イベント対策）
-  setTimeout(() => { isTouching = false }, 300)
-}
-function onTouchCancel() {
-  isTouching = false
-  onCancel()
-}
-
-// マウスイベント（デスクトップ）: タッチ操作後は無視
-function onMouseDown() {
-  if (isTouching) return
-  onStart()
-}
-function onMouseUp() {
-  if (isTouching) return
-  onEnd()
-}
-function onMouseLeave() {
-  if (isTouching) return
-  onCancel()
-}
-
-onUnmounted(clearTimers)
+onUnmounted(clearTick)
 </script>
 
 <template>
@@ -153,27 +117,33 @@ onUnmounted(clearTimers)
 
     <!-- 右: 完了ボタン（仕込み必要な未完了アイテムのみ） -->
     <template v-if="needsPrep && !completed">
-      <button
-        type="button"
-        class="shrink-0 select-none touch-none"
-        :class="timing
-          ? 'w-16 h-12 rounded-xl bg-amber-500 text-white text-xs font-bold flex flex-col items-center justify-center gap-0.5 active:scale-95'
-          : 'w-12 h-12 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 text-brand-500 text-2xl flex items-center justify-center active:scale-90 transition-transform'"
-        @touchstart.prevent="onTouchStart"
-        @touchend.prevent="onTouchEnd"
-        @touchcancel="onTouchCancel"
-        @mousedown="onMouseDown"
-        @mouseup="onMouseUp"
-        @mouseleave="onMouseLeave"
-        @contextmenu.prevent
-      >
-        <template v-if="timing">
-          <span class="text-[10px] leading-none">計測中</span>
+      <!-- タイマー計測中: 経過時間ボタン + キャンセルボタン -->
+      <template v-if="timing">
+        <button
+          type="button"
+          class="shrink-0 w-16 h-12 rounded-xl bg-amber-500 text-white text-xs font-bold flex flex-col items-center justify-center gap-0.5 active:scale-95 transition-transform"
+          @click="onCompleteClick"
+        >
+          <span class="text-[10px] leading-none">完了</span>
           <span class="leading-none">{{ elapsedLabel }}</span>
-        </template>
-        <template v-else>
-          ✓
-        </template>
+        </button>
+        <button
+          type="button"
+          class="shrink-0 w-8 h-8 rounded-lg text-neutral-400 dark:text-neutral-500 text-base flex items-center justify-center active:scale-90 transition-transform"
+          @click="onCancelTimer"
+        >
+          ✕
+        </button>
+      </template>
+
+      <!-- 通常: ✓ボタン（タイマーON時は1回目タップでタイマー開始） -->
+      <button
+        v-else
+        type="button"
+        class="shrink-0 w-12 h-12 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 text-brand-500 text-2xl flex items-center justify-center active:scale-90 transition-transform"
+        @click="onCompleteClick"
+      >
+        ✓
       </button>
     </template>
 
