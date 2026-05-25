@@ -137,15 +137,24 @@ export interface OrderSchedule {
   sort_order: number
 }
 
-export interface OrderScheduleIrregular {
+export interface DeliveryIrregularDate {
   id: string
   tenant_id: string
-  week_start_date: string
-  deadline_date: string
+  blackout_id: string
   delivery_date: string
-  uplift_weekday: number
-  uplift_holiday: number
-  note: string
+  note: string | null
+  created_at: string
+}
+
+export interface DeliveryBlackoutPeriod {
+  id: string
+  tenant_id: string
+  title: string
+  start_date: string
+  end_date: string
+  note: string | null
+  created_at: string
+  delivery_irregular_dates?: DeliveryIrregularDate[]
 }
 
 // ---------------- 営業後入力フォーム ----------------

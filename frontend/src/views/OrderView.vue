@@ -10,6 +10,7 @@ import {
   type EqualOrderQty,
 } from '@/composables/useInventoryCalc'
 import { isHolidayYmd } from '@/composables/useHolidays'
+import type { DeliveryBlackoutPeriod } from '@/types'
 
 const skewersStore = useSkewersStore()
 const orderScheduleStore = useOrderScheduleStore()
@@ -88,34 +89,104 @@ function fmtMdDow(d: Date): string {
   return `${d.getMonth() + 1}/${d.getDate()}（${DOW_LABELS[d.getDay()]}）`
 }
 
+/** Date に n 日を加算する */
+function addDays(base: Date, n: number): Date {
+  const d = new Date(base)
+  d.setDate(d.getDate() + n)
+  return d
+}
+
+/** dow → 週内オフセット日数（月=0, 火=1, ..., 土=5, 日=6） */
+const dowOffset = (dow: number) => (dow === 0 ? 6 : dow - 1)
+
 /**
- * 選択週の発注スケジュール表示（締め日・納品日を実日付に変換）。
- * 通常スケジュール: weekStart（月曜）から各 dow へオフセット
- * 例外スケジュール: week_start_date が weekStart と一致するもののみ
+ * 指定日が納品不可期間内かチェックし、該当する期間を返す
  */
-const weekSchedules = computed<{ deadlineDate: Date; deliveryDate: Date; note?: string }[]>(() => {
+function getBlackoutFor(date: Date, blackouts: DeliveryBlackoutPeriod[]) {
+  const ds = toDateStr(date)
+  return blackouts.find((b) => b.start_date <= ds && ds <= b.end_date) ?? null
+}
+
+/**
+ * 納品不可期間終了後の次の通常納品曜日（delivery_dow）の日付を返す
+ */
+function nextDeliveryAfterBlackout(deliveryDow: number, blackoutEnd: Date): Date {
+  for (let i = 1; i <= 14; i++) {
+    const d = addDays(blackoutEnd, i)
+    if (d.getDay() === deliveryDow) return d
+  }
+  return addDays(blackoutEnd, 1) // フォールバック（理論上到達しない）
+}
+
+interface WeekScheduleEntry {
+  deadlineDate: Date
+  deliveryDate: Date
+  isIrregular: boolean
+  blackoutTitle?: string
+  note?: string
+}
+
+/**
+ * 選択週の発注スケジュール表示。
+ * 通常の納品日が納品不可期間に入る場合、イレギュラー納品日または
+ * 不可期間終了後の次の通常納品日へ自動調整する。
+ */
+const weekSchedules = computed<WeekScheduleEntry[]>(() => {
   if (!weekStart.value) return []
   const mon = parseYmd(weekStart.value)
-  // dow → 週内オフセット日数（月=0, 火=1, ..., 土=5, 日=6）
-  const dowOffset = (dow: number) => (dow === 0 ? 6 : dow - 1)
-  const addDays = (base: Date, n: number) => {
-    const d = new Date(base)
-    d.setDate(d.getDate() + n)
-    return d
+  const blackouts = orderScheduleStore.blackouts
+
+  const entries: WeekScheduleEntry[] = []
+
+  for (const s of orderScheduleStore.schedules) {
+    const deadlineDate = addDays(mon, dowOffset(s.deadline_dow))
+    const normalDeliveryDate = addDays(mon, dowOffset(s.delivery_dow))
+
+    const blackout = getBlackoutFor(normalDeliveryDate, blackouts)
+    if (!blackout) {
+      // 通常納品
+      entries.push({ deadlineDate, deliveryDate: normalDeliveryDate, isIrregular: false })
+    } else {
+      const irregularDates = blackout.delivery_irregular_dates ?? []
+      if (irregularDates.length > 0) {
+        // イレギュラー納品日が登録されている → それを使用
+        for (const irr of irregularDates) {
+          entries.push({
+            deadlineDate,
+            deliveryDate: parseYmd(irr.delivery_date),
+            isIrregular: true,
+            blackoutTitle: blackout.title,
+            note: irr.note ?? undefined,
+          })
+        }
+      } else {
+        // 未登録 → 不可期間終了後の最初の通常納品曜日
+        const nextDate = nextDeliveryAfterBlackout(s.delivery_dow, parseYmd(blackout.end_date))
+        entries.push({
+          deadlineDate,
+          deliveryDate: nextDate,
+          isIrregular: false,
+          blackoutTitle: blackout.title,
+        })
+      }
+    }
   }
 
-  const normals = orderScheduleStore.schedules.map((s) => ({
-    deadlineDate: addDays(mon, dowOffset(s.deadline_dow)),
-    deliveryDate: addDays(mon, dowOffset(s.delivery_dow)),
-  }))
-  const irregulars = orderScheduleStore.irregulars
-    .filter((i) => i.week_start_date === weekStart.value)
-    .map((i) => ({
-      deadlineDate: parseYmd(i.deadline_date),
-      deliveryDate: parseYmd(i.delivery_date),
-      note: i.note,
-    }))
-  return [...normals, ...irregulars]
+  return entries
+})
+
+/**
+ * 選択週に重なる納品不可期間（警告バナー用）
+ */
+const weekBlackouts = computed<DeliveryBlackoutPeriod[]>(() => {
+  if (!weekStart.value) return []
+  const mon = parseYmd(weekStart.value)
+  const sun = addDays(mon, 6)
+  const monStr = toDateStr(mon)
+  const sunStr = toDateStr(sun)
+  return orderScheduleStore.blackouts.filter(
+    (b) => b.start_date <= sunStr && b.end_date >= monStr,
+  )
 })
 
 // ---------------- 操作 ----------------
@@ -308,30 +379,57 @@ onMounted(async () => {
         </section>
 
         <!-- 今週の発注スケジュール（運用管理で登録されたものを表示） -->
-        <section
-          v-if="weekSchedules.length > 0"
-          class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-        >
-          <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-            📦 今週の発注スケジュール
-          </h2>
-          <ul class="divide-y divide-edge dark:divide-edge-dark">
-            <li
-              v-for="(sch, i) in weekSchedules"
-              :key="i"
-              class="px-4 py-3 text-sm text-neutral-700 dark:text-neutral-200"
-            >
-              <div class="flex items-center gap-2 flex-wrap">
-                <span>締め切り <span class="font-semibold tabular-nums">{{ fmtMdDow(sch.deadlineDate) }}</span></span>
-                <span class="text-neutral-400 dark:text-neutral-500">→</span>
-                <span>納品 <span class="font-semibold tabular-nums text-brand-500">{{ fmtMdDow(sch.deliveryDate) }}</span></span>
-              </div>
-              <p v-if="sch.note" class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                📝 {{ sch.note }}
+        <template v-if="weekSchedules.length > 0 || weekBlackouts.length > 0">
+          <!-- 納品不可期間 警告バナー -->
+          <div
+            v-for="(blk, bi) in weekBlackouts"
+            :key="`blk-${bi}`"
+            class="flex items-start gap-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl px-4 py-3"
+          >
+            <span class="text-base leading-none mt-0.5">⚠️</span>
+            <div>
+              <p class="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                {{ blk.title }}（{{ blk.start_date.slice(5).replace('-', '/') }}〜{{ blk.end_date.slice(5).replace('-', '/') }}）の納品不可期間があります。
               </p>
-            </li>
-          </ul>
-        </section>
+              <p class="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                通常より早めの発注をご検討ください。
+              </p>
+            </div>
+          </div>
+
+          <!-- 発注スケジュール一覧 -->
+          <section
+            v-if="weekSchedules.length > 0"
+            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
+          >
+            <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+              📦 今週の発注スケジュール
+            </h2>
+            <ul class="divide-y divide-edge dark:divide-edge-dark">
+              <li
+                v-for="(sch, i) in weekSchedules"
+                :key="i"
+                class="px-4 py-3 text-sm text-neutral-700 dark:text-neutral-200"
+              >
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span>締め切り <span class="font-semibold tabular-nums">{{ fmtMdDow(sch.deadlineDate) }}</span></span>
+                  <span class="text-neutral-400 dark:text-neutral-500">→</span>
+                  <span>
+                    納品
+                    <span
+                      class="font-semibold tabular-nums"
+                      :class="sch.isIrregular ? 'text-amber-500' : 'text-brand-500'"
+                    >{{ fmtMdDow(sch.deliveryDate) }}</span>
+                    <span v-if="sch.isIrregular" class="ml-1 text-xs text-amber-500">⚠️ イレギュラー納品</span>
+                  </span>
+                </div>
+                <p v-if="sch.note" class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                  📝 {{ sch.note }}
+                </p>
+              </li>
+            </ul>
+          </section>
+        </template>
 
         <!-- コース比率 -->
         <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3 space-y-2">

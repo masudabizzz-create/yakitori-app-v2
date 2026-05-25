@@ -166,6 +166,7 @@ LINE Messaging API 経由でブロードキャスト送信。`settings.line_toke
 | `003_seed_data.sql` | デフォルトテナント・設定 | ✅ 実施済み |
 | `004_new_roles_and_invitations.sql` | 7ロール + 招待テーブル | ✅ 実施済み |
 | `005_qr_invitation.sql` | QRコード招待フロー対応 | ✅ 実施済み |
+| `006_delivery_blackouts.sql` | 発注イレギュラー管理再設計 | ⏳ 手動実行が必要 |
 | `cleanup_test_users.sql` | テストユーザー削除 | ⏳ 手動実行が必要 |
 
 ---
@@ -202,6 +203,7 @@ VITE_SUPABASE_ANON_KEY=eyJ...
 | カスタム SMTP | 未設定。Resend（無料 3,000通/月）への切り替えを推奨 |
 | LINE Vault 暗号化 | 未実装。LINE トークンは settings テーブルに平文保存 |
 | テストユーザー削除 | `cleanup_test_users.sql` を SQL Editor で実行する |
+| 006 マイグレーション | `006_delivery_blackouts.sql` を SQL Editor で実行する（旧テーブル廃止・新テーブル作成） |
 
 ---
 
