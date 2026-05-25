@@ -155,6 +155,7 @@ npx tsx migrate_from_gas.ts
 | `supabase/migrations/004_new_roles_and_invitations.sql` | 7ロール対応 + `user_invitations` テーブル + RLS |
 | `supabase/migrations/005_qr_invitation.sql` | QRコード招待フロー対応（token / expires_at カラム追加） |
 | `supabase/migrations/006_delivery_blackouts.sql` | 発注イレギュラー管理再設計（旧テーブル廃止・新2テーブル作成） |
+| `supabase/migrations/007_prep_logs.sql` | 仕込み完了ログテーブル（prep_logs）新規作成 |
 
 004 の内容:
 - `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
@@ -165,6 +166,10 @@ npx tsx migrate_from_gas.ts
 - `user_invitations` に `token`（uuid）・`expires_at`（timestamptz）カラムを追加
 - `email` / `name` を nullable に変更（QRフローでは登録時にスタッフが入力）
 - `status` に `used` を追加
+
+007 の内容:
+- `prep_logs` テーブルを作成（仕込み完了ログ: 担当者・時刻・本数・タイマー記録）
+- RLS ポリシー追加（参照・書き込み: 同テナント全ロール）
 
 006 の内容:
 - 旧テーブル `order_schedule_irregulars` を廃止（DROP）

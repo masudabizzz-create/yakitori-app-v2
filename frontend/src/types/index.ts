@@ -157,6 +157,22 @@ export interface DeliveryBlackoutPeriod {
   delivery_irregular_dates?: DeliveryIrregularDate[]
 }
 
+export interface PrepLog {
+  id: string
+  tenant_id: string
+  log_date: string
+  skewer_id: string | null
+  skewer_name: string
+  prep_amount: number
+  stick_count: number
+  completed_at: string
+  user_id: string | null
+  duration_seconds: number | null
+  type: 'normal' | 'extra'
+  note: string | null
+  created_at: string
+}
+
 // ---------------- 営業後入力フォーム ----------------
 
 /** 1串あたりの入力状態（カテゴリにより使う項目が異なる） */
