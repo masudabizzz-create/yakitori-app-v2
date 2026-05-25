@@ -28,12 +28,17 @@ const stockText = computed(() =>
 )
 
 // ─── 長押しタイマー ───────────────────────────────────────────
+// iOS Safari は長押し時に pointercancel を発火させるため
+// touchstart.prevent + touchend/touchcancel に切り替え、
+// デスクトップ向けには mousedown/mouseup を併用する。
 
-const timing = ref(false)          // 長押し計測中フラグ
-const elapsedMs = ref(0)           // 経過ミリ秒
+const timing = ref(false)   // 計測中フラグ
+const elapsedMs = ref(0)    // 経過ミリ秒
 let pressTimer: ReturnType<typeof setTimeout> | null = null
 let tickTimer: ReturnType<typeof setInterval> | null = null
 let tickStart = 0
+// タッチ操作済みフラグ（mousedown の二重発火防止）
+let isTouching = false
 
 const elapsedLabel = computed(() => {
   const s = Math.floor(elapsedMs.value / 1000)
@@ -46,9 +51,8 @@ function clearTimers() {
   if (tickTimer !== null) { clearInterval(tickTimer); tickTimer = null }
 }
 
-function onPointerDown(e: PointerEvent) {
+function onStart() {
   if (props.completed || !needsPrep.value) return
-  e.currentTarget && (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   timing.value = false
   elapsedMs.value = 0
   if (props.timerEnabled) {
@@ -62,7 +66,7 @@ function onPointerDown(e: PointerEvent) {
   }
 }
 
-function onPointerUp() {
+function onEnd() {
   if (props.completed || !needsPrep.value) return
   if (timing.value) {
     clearTimers()
@@ -76,10 +80,41 @@ function onPointerUp() {
   }
 }
 
-function onPointerCancel() {
+function onCancel() {
   clearTimers()
   timing.value = false
   elapsedMs.value = 0
+}
+
+// タッチイベント（モバイル）: prevent でブラウザ介入を遮断
+function onTouchStart(e: TouchEvent) {
+  e.preventDefault()
+  isTouching = true
+  onStart()
+}
+function onTouchEnd(e: TouchEvent) {
+  e.preventDefault()
+  onEnd()
+  // タッチ終了後に isTouching を少し遅らせてリセット（click イベント対策）
+  setTimeout(() => { isTouching = false }, 300)
+}
+function onTouchCancel() {
+  isTouching = false
+  onCancel()
+}
+
+// マウスイベント（デスクトップ）: タッチ操作後は無視
+function onMouseDown() {
+  if (isTouching) return
+  onStart()
+}
+function onMouseUp() {
+  if (isTouching) return
+  onEnd()
+}
+function onMouseLeave() {
+  if (isTouching) return
+  onCancel()
 }
 
 onUnmounted(clearTimers)
@@ -124,9 +159,13 @@ onUnmounted(clearTimers)
         :class="timing
           ? 'w-16 h-12 rounded-xl bg-amber-500 text-white text-xs font-bold flex flex-col items-center justify-center gap-0.5 active:scale-95'
           : 'w-12 h-12 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 text-brand-500 text-2xl flex items-center justify-center active:scale-90 transition-transform'"
-        @pointerdown="onPointerDown"
-        @pointerup="onPointerUp"
-        @pointercancel="onPointerCancel"
+        @touchstart.prevent="onTouchStart"
+        @touchend.prevent="onTouchEnd"
+        @touchcancel="onTouchCancel"
+        @mousedown="onMouseDown"
+        @mouseup="onMouseUp"
+        @mouseleave="onMouseLeave"
+        @contextmenu.prevent
       >
         <template v-if="timing">
           <span class="text-[10px] leading-none">計測中</span>
