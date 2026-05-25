@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { useSkewersStore } from '@/stores/skewers'
 import { useOrderScheduleStore } from '@/stores/orderSchedule'
 import {
@@ -12,6 +13,7 @@ import {
 import { isHolidayYmd } from '@/composables/useHolidays'
 import type { DeliveryBlackoutPeriod } from '@/types'
 
+const auth = useAuthStore()
 const skewersStore = useSkewersStore()
 const orderScheduleStore = useOrderScheduleStore()
 
@@ -317,8 +319,9 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
+    const tenantId = auth.appUser?.tenant_id
     loadLocal()
-    await Promise.all([skewersStore.fetchActive(), orderScheduleStore.fetchAll()])
+    await Promise.all([skewersStore.fetchActive(tenantId), orderScheduleStore.fetchAll(tenantId)])
     if (skewersStore.error) throw new Error(skewersStore.error)
     if (orderScheduleStore.error) throw new Error(orderScheduleStore.error)
     selectWeek('this')

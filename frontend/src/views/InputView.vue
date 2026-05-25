@@ -103,9 +103,10 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
+    const tenantId = auth.appUser?.tenant_id
     await Promise.all([
-      skewersStore.fetchActive(),
-      settingsStore.fetchSettings(),
+      skewersStore.fetchActive(tenantId),
+      settingsStore.fetchSettings(tenantId),
       usersStore.fetchAll(),
     ])
     if (skewersStore.error) throw new Error(skewersStore.error)

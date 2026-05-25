@@ -40,10 +40,11 @@ onMounted(async () => {
   loading.value = true
   loadError.value = ''
   try {
+    const tenantId = auth.appUser?.tenant_id
     await Promise.all([
       usersStore.fetchAll(),
       usersStore.fetchInvitations(),
-      settingsStore.fetchSettings(),
+      settingsStore.fetchSettings(tenantId),
       tenantsStore.fetchAll(),
     ])
     if (usersStore.error) throw new Error(usersStore.error)
