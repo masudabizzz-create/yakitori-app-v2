@@ -64,7 +64,7 @@ async function handleLogout() {
 <template>
   <div class="min-h-screen bg-app dark:bg-app-dark">
     <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark px-4 py-3">
-      <div class="max-w-lg mx-auto flex items-center justify-between gap-3 pr-12">
+      <div class="max-w-lg mx-auto flex items-center justify-between gap-2">
         <!-- 左: ロゴ + タイトル + 日付 -->
         <div class="flex items-center gap-3">
           <img :src="iconSrc" alt="" class="w-10 h-10 rounded-2xl object-cover shrink-0" />
@@ -76,7 +76,7 @@ async function handleLogout() {
         <!-- 右: 店舗切り替え + ユーザー名 + ログアウト -->
         <div class="flex items-center gap-2 shrink-0">
           <TenantSwitcher />
-          <span class="text-xs text-neutral-500 dark:text-neutral-400 max-w-[5rem] truncate">{{ auth.displayName }}</span>
+          <span class="hidden sm:inline text-xs text-neutral-500 dark:text-neutral-400 max-w-[5rem] truncate">{{ auth.displayName }}</span>
           <button
             class="text-xs text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 px-2 py-1 rounded-lg border border-edge dark:border-edge-dark transition-colors"
             @click="handleLogout"

@@ -159,14 +159,14 @@ function hasPermission(userId: string, tenantId: string): boolean {
             <button
               type="button"
               :disabled="saving === row.id"
-              class="shrink-0 px-3 py-1.5 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white text-xs font-semibold rounded-xl transition-colors"
+              class="shrink-0 min-h-tap px-3 py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white text-xs font-semibold rounded-xl transition-colors"
               @click="saveTenant(row)"
             >
               {{ saving === row.id ? '保存中' : '保存' }}
             </button>
             <button
               type="button"
-              class="shrink-0 px-2.5 py-1.5 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+              class="shrink-0 min-h-tap px-2.5 py-2 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
               @click="deleteConfirmId = row.id; deleteErr = ''"
             >
               削除

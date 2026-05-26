@@ -441,7 +441,7 @@ function fmtDateTime(iso: string | null | undefined): string {
               </template>
 
               <dt class="text-neutral-400 dark:text-neutral-500">メール</dt>
-              <dd class="text-neutral-800 dark:text-neutral-100">{{ u.email ?? '—' }}</dd>
+              <dd class="text-neutral-800 dark:text-neutral-100 break-all min-w-0">{{ u.email ?? '—' }}</dd>
 
               <dt class="text-neutral-400 dark:text-neutral-500">登録日</dt>
               <dd class="text-neutral-800 dark:text-neutral-100">{{ fmtDate(u.created_at) }}</dd>
@@ -517,16 +517,14 @@ function fmtDateTime(iso: string | null | undefined): string {
                 <template v-else>✅ 有効化する</template>
               </button>
 
-              <!-- 削除（テキストリンク形式・赤・小さく） -->
-              <div class="text-center pt-1">
-                <button
-                  type="button"
-                  class="text-xs text-red-400 dark:text-red-500 hover:text-red-600 dark:hover:text-red-300 hover:underline transition-colors"
-                  @click="deleteConfirmId = u.id; deleteErr = ''"
-                >
-                  このスタッフを完全に削除する
-                </button>
-              </div>
+              <!-- 削除（テキストリンク形式・赤・タップしやすいよう最小高保証） -->
+              <button
+                type="button"
+                class="w-full min-h-tap text-xs text-red-400 dark:text-red-500 hover:text-red-600 dark:hover:text-red-300 hover:underline transition-colors"
+                @click="deleteConfirmId = u.id; deleteErr = ''"
+              >
+                このスタッフを完全に削除する
+              </button>
             </div>
 
             <!-- 権限不足メッセージ（同格以上は編集不可） -->

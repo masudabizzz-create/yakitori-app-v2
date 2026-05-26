@@ -13,7 +13,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
       v-for="tab in tabs"
       :key="tab"
       type="button"
-      class="flex-none min-h-[38px] px-4 rounded-full text-sm font-medium whitespace-nowrap transition-colors"
+      class="flex-none min-h-tap px-4 rounded-full text-sm font-medium whitespace-nowrap transition-colors"
       :class="
         modelValue === tab
           ? 'bg-brand-500 text-white'

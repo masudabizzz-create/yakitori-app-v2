@@ -129,7 +129,7 @@ onUnmounted(clearTick)
         </button>
         <button
           type="button"
-          class="shrink-0 w-8 h-8 rounded-lg text-neutral-400 dark:text-neutral-500 text-base flex items-center justify-center active:scale-90 transition-transform"
+          class="shrink-0 w-11 h-11 rounded-lg text-neutral-400 dark:text-neutral-500 text-base flex items-center justify-center active:scale-90 transition-transform"
           @click="onCancelTimer"
         >
           ✕
@@ -151,7 +151,7 @@ onUnmounted(clearTick)
     <button
       v-else-if="completed"
       type="button"
-      class="shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-400 dark:text-neutral-500 border border-edge dark:border-edge-dark hover:text-red-400 hover:border-red-400/40 transition-colors"
+      class="shrink-0 min-h-tap px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-400 dark:text-neutral-500 border border-edge dark:border-edge-dark hover:text-red-400 hover:border-red-400/40 transition-colors"
       @click="emit('undo')"
     >
       取り消す
