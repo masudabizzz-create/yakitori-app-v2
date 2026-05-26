@@ -24,15 +24,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => authUser.value !== null)
   const role = computed<UserRole | null>(() => appUser.value?.role ?? null)
-  /** システム管理画面にアクセス可能（platform_admin / store_owner） */
+  /** システム管理画面にアクセス可能（rank >= 3: platform_admin / manager / store_owner） */
   const isAdmin = computed(() =>
-    role.value === 'platform_admin' || role.value === 'store_owner',
+    role.value === 'platform_admin' ||
+    role.value === 'manager' ||
+    role.value === 'store_owner',
   )
-  /** 運用管理画面にアクセス可能（platform_admin / store_owner / manager） */
+  /** 運用管理画面にアクセス可能（rank >= 3: platform_admin / manager / store_owner） */
   const isManager = computed(() =>
     role.value === 'platform_admin' ||
-    role.value === 'store_owner' ||
-    role.value === 'manager',
+    role.value === 'manager' ||
+    role.value === 'store_owner',
   )
   const displayName = computed(
     () => appUser.value?.name ?? authUser.value?.email ?? ''

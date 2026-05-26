@@ -160,6 +160,7 @@ npx tsx migrate_from_gas.ts
 | `supabase/migrations/009_tenants_platform_admin_only.sql` | 店舗作成（INSERT）を `platform_admin` のみに制限 |
 | `supabase/migrations/010_platform_admin_cross_tenant.sql` | `platform_admin` が全テナントのデータを読み書き可能に |
 | `supabase/migrations/011_user_tenant_permissions.sql` | `manager` が複数店舗にアクセスできる権限テーブルと RLS 更新 |
+| `supabase/migrations/012_fix_role_hierarchy.sql` | ロール序列修正（manager rank=4 > store_owner rank=3） |
 
 004 の内容:
 - `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
@@ -196,6 +197,10 @@ npx tsx migrate_from_gas.ts
   - `tenants`（SELECT: 全テナント一覧表示）
   - `skewers` / `settings` / `order_schedules` / `delivery_blackout_periods` / `delivery_irregular_dates`
 - 店舗作成後の初期設定フローを有効化（`/admin/ops?tenant=<id>` による店舗コンテキスト切り替え）
+
+012 の内容:
+- ロール序列を修正（manager rank=4 が store_owner rank=3 より上位になるよう全ポリシーを更新）
+- 修正対象: users INSERT/UPDATE/DELETE / settings 書き込み / user_invitations 全操作 / tenants UPDATE / daily_logs DELETE / daily_log_stocks DELETE
 
 011 の内容:
 - `user_tenant_permissions` テーブルを作成（`manager` が複数店舗にアクセスするための権限テーブル）

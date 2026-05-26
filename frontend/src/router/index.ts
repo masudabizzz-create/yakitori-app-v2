@@ -80,13 +80,13 @@ const router = createRouter({
       },
     },
     {
-      // platform_admin / store_owner のみ
+      // rank >= 3: platform_admin / manager / store_owner
       path: '/admin/sys',
       name: 'sys-admin',
       component: () => import('@/views/SysAdminView.vue'),
       meta: {
         requiresAuth: true,
-        allowedRoles: ['platform_admin', 'store_owner'],
+        allowedRoles: ['platform_admin', 'manager', 'store_owner'],
         title: 'システム管理',
       },
     },

@@ -44,7 +44,7 @@ const navCards: NavCard[] = [
   },
   {
     emoji: '⚙️', label: 'システム管理', desc: 'スタッフ・LINE設定', to: '/admin/sys',
-    allowedRoles: ['platform_admin', 'store_owner'],
+    allowedRoles: ['platform_admin', 'manager', 'store_owner'],
   },
 ]
 
