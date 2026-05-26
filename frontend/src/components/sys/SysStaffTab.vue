@@ -22,6 +22,25 @@ const ROLES: { value: UserRole; label: string }[] = [
   { value: 'staff_hall',     label: 'スタッフホール' },
 ]
 
+/** 自分のランク */
+const myRank = computed<number>(() => (auth.role ? ROLE_RANK[auth.role] : 0))
+
+/**
+ * 対象ユーザーを編集できるか。
+ * 自分より下位ランクのスタッフのみ操作可能。
+ */
+function canEdit(u: AppUserDetail): boolean {
+  return myRank.value > ROLE_RANK[u.role]
+}
+
+/**
+ * 編集フォームで選択できるロール（自分より下位のみ）。
+ * 自分と同格以上には昇格させられない。
+ */
+const assignableRoles = computed(() =>
+  ROLES.filter((r) => ROLE_RANK[r.value] < myRank.value),
+)
+
 // ─── マウント ──────────────────────────────────────────────────
 
 onMounted(async () => {
@@ -447,7 +466,8 @@ function fmtDateTime(iso: string | null | undefined): string {
                   v-model="editForm.role"
                   class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
                 >
-                  <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
+                  <!-- 自分より下位のロールのみ選択可 -->
+                  <option v-for="r in assignableRoles" :key="r.value" :value="r.value">{{ r.label }}</option>
                 </select>
               </div>
               <p v-if="saveErr" class="text-xs text-red-500 dark:text-red-400">{{ saveErr }}</p>
@@ -470,8 +490,8 @@ function fmtDateTime(iso: string | null | undefined): string {
               </div>
             </div>
 
-            <!-- アクションボタン群 -->
-            <div class="space-y-2">
+            <!-- アクションボタン群（自分より上位ランクには表示しない） -->
+            <div v-if="canEdit(u)" class="space-y-2">
               <!-- 編集ボタン（フォーム非表示時のみ） -->
               <button
                 v-if="editingId !== u.id"
@@ -508,6 +528,11 @@ function fmtDateTime(iso: string | null | undefined): string {
                 </button>
               </div>
             </div>
+
+            <!-- 権限不足メッセージ（同格以上は編集不可） -->
+            <p v-else class="text-xs text-neutral-400 dark:text-neutral-500 text-center py-1">
+              ※ 自分と同格以上のため編集できません
+            </p>
           </div>
         </li>
       </ul>
