@@ -44,6 +44,7 @@ onMounted(async () => {
     const tenantId = auth.effectiveTenantId
     await Promise.all([
       usersStore.fetchAll(tenantId),
+      usersStore.fetchAllWithDetails(tenantId),
       usersStore.fetchInvitations(),
       settingsStore.fetchSettings(tenantId),
       tenantsStore.fetchAll(),

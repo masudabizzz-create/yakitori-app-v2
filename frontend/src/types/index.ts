@@ -56,6 +56,12 @@ export interface AppUser {
   created_at: string
 }
 
+/** get_staff_details() RPC の戻り値。email / last_sign_in_at を追加 */
+export interface AppUserDetail extends AppUser {
+  email: string | null
+  last_sign_in_at: string | null
+}
+
 export interface Skewer {
   id: string
   tenant_id: string

@@ -29,6 +29,15 @@ export const useTenantPermissionsStore = defineStore('tenantPermissions', () => 
           .map((p) => p.user_id),
   )
 
+  /** ユーザーIDを受け取り、そのユーザーが権限を持つ tenant_id 配列を返す */
+  const tenantIdsForUser = computed(
+    () =>
+      (userId: string): string[] =>
+        permissions.value
+          .filter((p) => p.user_id === userId)
+          .map((p) => p.tenant_id),
+  )
+
   /** 全マネージャーと全権限を一括取得する */
   async function fetchAll(): Promise<void> {
     loading.value = true
@@ -90,6 +99,7 @@ export const useTenantPermissionsStore = defineStore('tenantPermissions', () => 
     loading,
     error,
     managerIdsForTenant,
+    tenantIdsForUser,
     fetchAll,
     addPermission,
     removePermission,

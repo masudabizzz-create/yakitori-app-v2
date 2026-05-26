@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase'
 import { extractFnError } from '@/lib/fn-error'
-import type { AppUser, UserInvitation, UserRole } from '@/types'
+import type { AppUser, AppUserDetail, UserInvitation, UserRole } from '@/types'
 
 /**
  * スタッフ（users テーブル）ストア
@@ -13,9 +13,35 @@ import type { AppUser, UserInvitation, UserRole } from '@/types'
  */
 export const useUsersStore = defineStore('users', () => {
   const users = ref<AppUser[]>([])
+  /** get_staff_details() RPC の結果（email / last_sign_in_at 付き） */
+  const usersWithDetails = ref<AppUserDetail[]>([])
   const invitations = ref<UserInvitation[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+
+  /**
+   * email / last_sign_in_at を含むスタッフ詳細一覧を取得する（get_staff_details RPC 経由）。
+   * tenantId を指定するとクライアント側でフィルタリングする。
+   */
+  async function fetchAllWithDetails(tenantId?: string): Promise<void> {
+    loading.value = true
+    error.value = null
+    const { data, error: err } = await supabase.rpc('get_staff_details')
+    if (err) {
+      error.value = err.message
+    } else {
+      const all = ((data ?? []) as unknown as AppUserDetail[]).map((row) => ({
+        ...row,
+        role: row.role as UserRole,
+        email: (row.email as string | null) ?? null,
+        last_sign_in_at: (row.last_sign_in_at as string | null) ?? null,
+      })) as AppUserDetail[]
+      usersWithDetails.value = tenantId
+        ? all.filter((u) => u.tenant_id === tenantId)
+        : all
+    }
+    loading.value = false
+  }
 
   /** スタッフ一覧を取得する（tenantId 指定時はそのテナントのみ、省略時は RLS フィルタ） */
   async function fetchAll(tenantId?: string): Promise<void> {
@@ -40,6 +66,42 @@ export const useUsersStore = defineStore('users', () => {
       .order('created_at', { ascending: false })
     if (!err) {
       invitations.value = (data ?? []) as UserInvitation[]
+    }
+  }
+
+  /** スタッフ 1 名分の 名前/役割/有効フラグ を更新し、usersWithDetails をオプティミスティック更新する */
+  async function saveUser(
+    u: Pick<AppUser, 'id' | 'name' | 'role' | 'is_active'>,
+  ): Promise<void> {
+    const { error: err } = await supabase
+      .from('users')
+      .update({ name: u.name, role: u.role, is_active: u.is_active })
+      .eq('id', u.id)
+    if (err) throw new Error(err.message)
+    const idx = usersWithDetails.value.findIndex((x) => x.id === u.id)
+    if (idx >= 0) {
+      usersWithDetails.value[idx] = {
+        ...usersWithDetails.value[idx],
+        name: u.name,
+        role: u.role,
+        is_active: u.is_active,
+      }
+    }
+  }
+
+  /** is_active フラグのみを更新する（無効化 / 有効化） */
+  async function toggleActive(userId: string, isActive: boolean): Promise<void> {
+    const { error: err } = await supabase
+      .from('users')
+      .update({ is_active: isActive })
+      .eq('id', userId)
+    if (err) throw new Error(err.message)
+    const idx = usersWithDetails.value.findIndex((x) => x.id === userId)
+    if (idx >= 0) {
+      usersWithDetails.value[idx] = {
+        ...usersWithDetails.value[idx],
+        is_active: isActive,
+      }
     }
   }
 
@@ -101,6 +163,7 @@ export const useUsersStore = defineStore('users', () => {
       throw new Error(await extractFnError(err, data))
     }
     await fetchAll()
+    usersWithDetails.value = usersWithDetails.value.filter((u) => u.id !== userId)
   }
 
   /** QRコード招待を発行する（manage-users Edge Function 経由） */
@@ -130,12 +193,16 @@ export const useUsersStore = defineStore('users', () => {
 
   return {
     users,
+    usersWithDetails,
     invitations,
     loading,
     error,
     fetchAll,
+    fetchAllWithDetails,
     fetchInvitations,
+    saveUser,
     saveUsers,
+    toggleActive,
     createInvitation,
     approveInvitation,
     rejectInvitation,
