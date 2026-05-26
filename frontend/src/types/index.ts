@@ -178,6 +178,20 @@ export interface PrepLog {
   created_at: string
 }
 
+export interface AuditLog {
+  id: string
+  tenant_id: string | null
+  user_id: string | null
+  actor_name: string | null
+  action: string
+  target_type: string | null
+  target_id: string | null
+  target_name: string | null
+  before_value: unknown | null
+  after_value: unknown | null
+  created_at: string
+}
+
 // ---------------- 営業後入力フォーム ----------------
 
 /** 1串あたりの入力状態（カテゴリにより使う項目が異なる） */

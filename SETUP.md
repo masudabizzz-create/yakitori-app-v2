@@ -161,6 +161,8 @@ npx tsx migrate_from_gas.ts
 | `supabase/migrations/010_platform_admin_cross_tenant.sql` | `platform_admin` が全テナントのデータを読み書き可能に |
 | `supabase/migrations/011_user_tenant_permissions.sql` | `manager` が複数店舗にアクセスできる権限テーブルと RLS 更新 |
 | `supabase/migrations/012_fix_role_hierarchy.sql` | ロール序列修正（manager rank=4 > store_owner rank=3） |
+| `supabase/migrations/013_manager_ui_policies.sql` | manager 向け RLS 補完（user_tenant_permissions 閲覧・users 一覧） |
+| `supabase/migrations/014_security_hardening.sql` | セキュリティ強化（自己昇格防止 RLS / 監査ログテーブル・関数） |
 
 004 の内容:
 - `users.role` の CHECK 制約を 7 ロール（`super_admin`, `tenant_admin`, `admin`, `manager`, `user`, `kitchen`, `hall`）に拡張
@@ -202,6 +204,14 @@ npx tsx migrate_from_gas.ts
 - ロール序列を修正（manager rank=4 が store_owner rank=3 より上位になるよう全ポリシーを更新）
 - 修正対象: users INSERT/UPDATE/DELETE / settings 書き込み / user_invitations 全操作 / tenants UPDATE / daily_logs DELETE / daily_log_stocks DELETE
 
+013 の内容:
+- `manager` が UI から `user_tenant_permissions` の閲覧と `users` の一覧を取得できるよう RLS を補完
+
+014 の内容:
+- `user_tenant_permissions` の書き込みポリシーに自己昇格防止（`user_id != auth.uid()`）を追加
+- `audit_logs` テーブルを新規作成（全操作イベントを記録）
+- `insert_audit_log()` SECURITY DEFINER 関数を追加（user_id は auth.uid() 強制でなりすまし防止）
+
 011 の内容:
 - `user_tenant_permissions` テーブルを作成（`manager` が複数店舗にアクセスするための権限テーブル）
 - `has_tenant_access(check_tenant_id uuid)` PostgreSQL 関数を追加（platform_admin / 自テナント / 権限登録済みで true）
@@ -226,6 +236,7 @@ npx tsx migrate_from_gas.ts
 - `approve_invitation` — 招待を承認（Auth ユーザー作成 + LINE通知）
 - `reject_invitation` — 招待を拒否
 - `delete_user` — スタッフ削除（Auth ユーザー削除 → CASCADE）
+- `force_signout` — 指定ユーザーの全セッションを強制失効（退職・ロール変更時に自動呼び出し）
 - `create_tenant` / `update_tenant` / `delete_tenant` — 店舗の作成・更新・削除
 
 #### デプロイ

@@ -7,22 +7,26 @@ import { useAuthStore } from '@/stores/auth'
 import SysStaffTab from '@/components/sys/SysStaffTab.vue'
 import SysSettingsTab from '@/components/sys/SysSettingsTab.vue'
 import SysTenantsTab from '@/components/sys/SysTenantsTab.vue'
+import SysAuditTab from '@/components/sys/SysAuditTab.vue'
 import TenantSwitcher from '@/components/TenantSwitcher.vue'
 
-type TabKey = 'staff' | 'tenants' | 'settings'
+type TabKey = 'staff' | 'tenants' | 'settings' | 'audit'
 
 const usersStore = useUsersStore()
 const settingsStore = useSettingsStore()
 const tenantsStore = useTenantsStore()
 const auth = useAuthStore()
 
-/** 店舗管理タブは platform_admin のみ表示 */
+/** 店舗管理・監査ログタブは platform_admin のみ表示 */
 const TABS = computed<{ key: TabKey; label: string }[]>(() => [
   { key: 'staff',    label: 'スタッフ管理' },
   ...(auth.role === 'platform_admin'
     ? [{ key: 'tenants' as TabKey, label: '店舗管理' }]
     : []),
   { key: 'settings', label: 'システム設定' },
+  ...(auth.role === 'platform_admin' || auth.role === 'store_owner'
+    ? [{ key: 'audit' as TabKey, label: '監査ログ' }]
+    : []),
 ])
 
 const activeTab = ref<TabKey>('staff')
@@ -96,6 +100,7 @@ onMounted(async () => {
         <SysStaffTab v-show="activeTab === 'staff'" />
         <SysTenantsTab v-show="activeTab === 'tenants'" />
         <SysSettingsTab v-show="activeTab === 'settings'" />
+        <SysAuditTab v-if="activeTab === 'audit'" />
       </template>
     </main>
   </div>

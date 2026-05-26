@@ -12,6 +12,7 @@
 //   approve_invitation  - 招待を承認（旧フロー）
 //   reject_invitation   - 招待を拒否 / QRトークン無効化
 //   delete_user        - スタッフ削除
+//   force_signout      - 指定ユーザーのセッションを強制失効（⑥ セッション管理）
 //   create_tenant      - 新店舗作成
 //   update_tenant      - 店舗名更新
 //   delete_tenant      - 店舗削除
@@ -160,6 +161,18 @@ Deno.serve(async (req) => {
       })
       .eq('id', inv.id)
 
+    // 監査ログ（新規ユーザーの user_id で記録）
+    await insertAuditLogEdge(supabaseAdmin, {
+      tenantId: inv.tenant_id as string,
+      userId: newAuthUser.user.id,
+      actorName: name as string,
+      action: 'user.register',
+      targetType: 'user',
+      targetId: newAuthUser.user.id,
+      targetName: name as string,
+      afterValue: { role: inv.role, email },
+    })
+
     return json(200, { success: true })
   }
 
@@ -226,6 +239,16 @@ Deno.serve(async (req) => {
       .select()
       .single()
     if (error) return json(500, { error: error.message })
+
+    await insertAuditLogEdge(supabaseAdmin, {
+      tenantId: targetTenantId,
+      userId: authData.user.id,
+      actorName: callerName,
+      action: 'invitation.create_qr',
+      targetType: 'invitation',
+      targetId: (data as { id?: string })?.id ?? null,
+      afterValue: { role, expires_at: expiresAt },
+    })
 
     return json(200, { token, expires_at: expiresAt, invitation: data })
   }
@@ -388,10 +411,56 @@ Deno.serve(async (req) => {
       return json(400, { error: '自分自身は削除できません' })
     }
 
+    // 削除前にユーザー情報を取得しておく（監査ログ用）
+    const { data: targetUser } = await supabaseAdmin
+      .from('users')
+      .select('name, tenant_id')
+      .eq('id', user_id as string)
+      .maybeSingle()
+
     const { error } = await supabaseAdmin.auth.admin.deleteUser(
       user_id as string,
     )
     if (error) return json(500, { error: error.message })
+
+    await insertAuditLogEdge(supabaseAdmin, {
+      tenantId: (targetUser?.tenant_id as string | null) ?? null,
+      userId: authData.user.id,
+      actorName: callerName,
+      action: 'user.delete',
+      targetType: 'user',
+      targetId: user_id as string,
+      targetName: (targetUser?.name as string | null) ?? null,
+    })
+
+    return json(200, { success: true })
+  }
+
+  // ============================================================
+  // force_signout — 指定ユーザーのセッションを強制失効（⑥）
+  // ============================================================
+  if (action === 'force_signout') {
+    if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
+    const { user_id } = payload
+    if (!user_id) return json(400, { error: 'user_id は必須です' })
+
+    // GoTrue Admin API: 指定ユーザーの全セッションを無効化
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const res = await fetch(
+      `${supabaseUrl}/auth/v1/admin/users/${user_id as string}/logout`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${serviceRoleKey}`,
+          apikey: serviceRoleKey,
+        },
+      },
+    )
+    if (!res.ok && res.status !== 404) {
+      const body = await res.text()
+      return json(500, { error: `セッション失効失敗: ${body}` })
+    }
     return json(200, { success: true })
   }
 
@@ -413,6 +482,16 @@ Deno.serve(async (req) => {
     await supabaseAdmin
       .from('settings')
       .insert({ tenant_id: tenant.id })
+
+    await insertAuditLogEdge(supabaseAdmin, {
+      tenantId: (tenant as { id: string }).id,
+      userId: authData.user.id,
+      actorName: callerName,
+      action: 'tenant.create',
+      targetType: 'tenant',
+      targetId: (tenant as { id: string }).id,
+      targetName: name as string,
+    })
 
     return json(200, { tenant })
   }
@@ -456,11 +535,55 @@ Deno.serve(async (req) => {
       .delete()
       .eq('id', tenant_id)
     if (error) return json(500, { error: error.message })
+
+    await insertAuditLogEdge(supabaseAdmin, {
+      tenantId: null,
+      userId: authData.user.id,
+      actorName: callerName,
+      action: 'tenant.delete',
+      targetType: 'tenant',
+      targetId: tenant_id as string,
+    })
+
     return json(200, { success: true })
   }
 
   return json(400, { error: `不明なアクション: ${action}` })
 })
+
+// ============================================================
+// ヘルパー: 監査ログ記録（⑦）
+// ============================================================
+async function insertAuditLogEdge(
+  supabase: ReturnType<typeof createClient>,
+  params: {
+    tenantId?: string | null
+    userId: string
+    actorName?: string | null
+    action: string
+    targetType?: string | null
+    targetId?: string | null
+    targetName?: string | null
+    beforeValue?: unknown | null
+    afterValue?: unknown | null
+  },
+): Promise<void> {
+  try {
+    await supabase.from('audit_logs').insert({
+      tenant_id:    params.tenantId    ?? null,
+      user_id:      params.userId,
+      actor_name:   params.actorName   ?? null,
+      action:       params.action,
+      target_type:  params.targetType  ?? null,
+      target_id:    params.targetId    ?? null,
+      target_name:  params.targetName  ?? null,
+      before_value: params.beforeValue ?? null,
+      after_value:  params.afterValue  ?? null,
+    })
+  } catch {
+    // 監査ログ失敗は本処理を止めない
+  }
+}
 
 // ============================================================
 // ヘルパー: LINE ブロードキャスト送信

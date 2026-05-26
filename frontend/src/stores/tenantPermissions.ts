@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { supabase } from '@/lib/supabase'
+import { insertAuditLog } from '@/lib/audit'
 import type { AppUser } from '@/types'
 
 interface Permission {
@@ -66,6 +67,15 @@ export const useTenantPermissionsStore = defineStore('tenantPermissions', () => 
     if (err) throw new Error(err.message)
     // ローカルにも追加（再フェッチ不要）
     permissions.value = [...permissions.value, { user_id: userId, tenant_id: tenantId }]
+    // 監査ログ
+    const mgr = managers.value.find((m) => m.id === userId)
+    await insertAuditLog({
+      tenantId,
+      action: 'permission.grant',
+      targetType: 'user',
+      targetId: userId,
+      targetName: mgr?.name ?? userId,
+    })
   }
 
   /** manager からテナントへのアクセス権を削除する */
@@ -79,6 +89,15 @@ export const useTenantPermissionsStore = defineStore('tenantPermissions', () => 
     permissions.value = permissions.value.filter(
       (p) => !(p.user_id === userId && p.tenant_id === tenantId),
     )
+    // 監査ログ
+    const mgr = managers.value.find((m) => m.id === userId)
+    await insertAuditLog({
+      tenantId,
+      action: 'permission.revoke',
+      targetType: 'user',
+      targetId: userId,
+      targetName: mgr?.name ?? userId,
+    })
   }
 
   /** 権限トグル（あれば削除、なければ追加） */

@@ -110,10 +110,13 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
-  // is_active チェック: 無効化されたスタッフは強制ログアウト
-  if (auth.isAuthenticated && auth.appUser?.is_active === false) {
-    await auth.logout()
-    return { name: 'login' }
+  // is_active チェック: 毎ナビゲーションで退職者を再確認（stale キャッシュ対策）
+  if (auth.isAuthenticated) {
+    await auth.fetchAppUser()
+    if (auth.appUser?.is_active === false) {
+      await auth.logout()
+      return { name: 'login' }
+    }
   }
 
   // 認証済みでログイン画面へ → ホームへ

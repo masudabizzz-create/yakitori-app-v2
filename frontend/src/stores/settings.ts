@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase'
+import { insertAuditLog } from '@/lib/audit'
 import type { Settings } from '@/types'
 
 /**
@@ -32,12 +33,22 @@ export const useSettingsStore = defineStore('settings', () => {
   /** 設定を部分更新する */
   async function saveSettings(patch: Partial<Settings>): Promise<void> {
     if (!settings.value) throw new Error('設定が読み込まれていません')
+    const before = { ...settings.value }
     const { error: err } = await supabase
       .from('settings')
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('id', settings.value.id)
     if (err) throw new Error(err.message)
     await fetchSettings()
+    // 監査ログ
+    await insertAuditLog({
+      tenantId: settings.value?.tenant_id ?? null,
+      action: 'settings.update',
+      targetType: 'settings',
+      targetId: before.id,
+      beforeValue: before,
+      afterValue: settings.value,
+    })
   }
 
   return { settings, loading, error, fetchSettings, saveSettings }

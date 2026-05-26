@@ -7,6 +7,13 @@ const auth = useAuthStore()
 const showMenu = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 
+// ─── 店舗切り替え確認ダイアログ ──────────────────────────────
+const showSwitchConfirm = ref(false)
+const pendingTenantId = ref<string | null>(null)
+
+/** 下書きキー（dailyLog ストアと同じキーを参照） */
+const DRAFT_KEY = 'yakitori_input_draft_v2'
+
 /** 現在表示中の店舗名 */
 const currentTenantName = computed(() => {
   const tid = auth.effectiveTenantId
@@ -22,6 +29,32 @@ const canSwitch = computed(
 )
 
 function selectTenant(tenantId: string) {
+  // 下書きが存在する場合は確認ダイアログを表示
+  const draft = localStorage.getItem(DRAFT_KEY)
+  if (draft) {
+    pendingTenantId.value = tenantId
+    showSwitchConfirm.value = true
+    showMenu.value = false
+    return
+  }
+  doSwitch(tenantId)
+}
+
+function confirmSwitch() {
+  if (pendingTenantId.value) {
+    localStorage.removeItem(DRAFT_KEY)
+    doSwitch(pendingTenantId.value)
+  }
+  showSwitchConfirm.value = false
+  pendingTenantId.value = null
+}
+
+function cancelSwitch() {
+  showSwitchConfirm.value = false
+  pendingTenantId.value = null
+}
+
+function doSwitch(tenantId: string) {
   auth.setActiveTenantId(tenantId)
   showMenu.value = false
 }
@@ -106,4 +139,36 @@ onUnmounted(() => document.removeEventListener('click', handleOutsideClick, true
       </div>
     </Transition>
   </div>
+
+  <!-- ─── 店舗切り替え確認ダイアログ ───────────────────────────── -->
+  <Teleport to="body">
+    <div
+      v-if="showSwitchConfirm"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4"
+      @click.self="cancelSwitch"
+    >
+      <div class="bg-card dark:bg-card-dark rounded-2xl p-6 w-full max-w-xs shadow-xl space-y-4">
+        <h3 class="text-base font-semibold text-neutral-900 dark:text-neutral-50">店舗を切り替えますか？</h3>
+        <p class="text-sm text-neutral-500 dark:text-neutral-400">
+          入力中のデータが消えます。よいですか？
+        </p>
+        <div class="flex gap-3">
+          <button
+            type="button"
+            class="flex-1 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-sm font-semibold rounded-xl transition-colors"
+            @click="cancelSwitch"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            class="flex-1 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-xl transition-colors"
+            @click="confirmSwitch"
+          >
+            切り替える
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>

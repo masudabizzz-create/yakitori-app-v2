@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '@/lib/supabase'
 import { extractFnError } from '@/lib/fn-error'
+import { insertAuditLog } from '@/lib/audit'
 import type { AppUser, AppUserDetail, UserInvitation, UserRole } from '@/types'
 
 /**
@@ -73,11 +74,15 @@ export const useUsersStore = defineStore('users', () => {
   async function saveUser(
     u: Pick<AppUser, 'id' | 'name' | 'role' | 'is_active'>,
   ): Promise<void> {
+    const before = usersWithDetails.value.find((x) => x.id === u.id)
+    const roleChanged = before && before.role !== u.role
+
     const { error: err } = await supabase
       .from('users')
       .update({ name: u.name, role: u.role, is_active: u.is_active })
       .eq('id', u.id)
     if (err) throw new Error(err.message)
+
     const idx = usersWithDetails.value.findIndex((x) => x.id === u.id)
     if (idx >= 0) {
       usersWithDetails.value[idx] = {
@@ -87,21 +92,54 @@ export const useUsersStore = defineStore('users', () => {
         is_active: u.is_active,
       }
     }
+
+    // ロール変更時: セッション強制失効 + 監査ログ
+    if (roleChanged && before) {
+      await supabase.functions.invoke('manage-users', {
+        body: { action: 'force_signout', user_id: u.id },
+      })
+      await insertAuditLog({
+        tenantId: before.tenant_id,
+        action: 'user.role_change',
+        targetType: 'user',
+        targetId: u.id,
+        targetName: u.name,
+        beforeValue: { role: before.role },
+        afterValue: { role: u.role },
+      })
+    }
   }
 
   /** is_active フラグのみを更新する（無効化 / 有効化） */
   async function toggleActive(userId: string, isActive: boolean): Promise<void> {
+    const before = usersWithDetails.value.find((x) => x.id === userId)
+
     const { error: err } = await supabase
       .from('users')
       .update({ is_active: isActive })
       .eq('id', userId)
     if (err) throw new Error(err.message)
+
     const idx = usersWithDetails.value.findIndex((x) => x.id === userId)
     if (idx >= 0) {
       usersWithDetails.value[idx] = {
         ...usersWithDetails.value[idx],
         is_active: isActive,
       }
+    }
+
+    // 無効化時: セッション強制失効 + 監査ログ
+    if (!isActive) {
+      await supabase.functions.invoke('manage-users', {
+        body: { action: 'force_signout', user_id: userId },
+      })
+      await insertAuditLog({
+        tenantId: before?.tenant_id ?? null,
+        action: 'user.deactivate',
+        targetType: 'user',
+        targetId: userId,
+        targetName: before?.name ?? userId,
+      })
     }
   }
 

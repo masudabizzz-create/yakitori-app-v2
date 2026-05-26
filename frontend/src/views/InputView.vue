@@ -7,6 +7,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useDailyLogStore } from '@/stores/dailyLog'
 import { useUsersStore } from '@/stores/users'
 import { calcPrep, calcTotalSkewers } from '@/composables/useInventoryCalc'
+import { ROLE_RANK } from '@/lib/roleRank'
 import { notifyDailyReport } from '@/composables/useLineNotify'
 import StepperInput from '@/components/StepperInput.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -65,6 +66,11 @@ const groupedSkewers = computed(() =>
 /** 有効なスタッフ一覧（名前順）*/
 const activeUsers = computed(() =>
   usersStore.users.filter((u) => u.is_active),
+)
+
+/** manager 以上（rank >= 4）のみ焼師を変更できる */
+const canChangeStaff = computed(() =>
+  ROLE_RANK[auth.role ?? 'staff_both'] >= 4,
 )
 
 // 翌日が日曜か
@@ -248,12 +254,12 @@ async function handleSubmit() {
           前回の下書きを復元しました
         </p>
 
-        <!-- 焼師（プルダウン選択） -->
+        <!-- 焼師（manager以上: プルダウン選択 / それ以外: 読み取り専用） -->
         <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3 space-y-1.5">
           <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400">焼師</p>
-          <!-- スタッフ一覧取得済みの場合はプルダウン -->
+          <!-- manager 以上（rank >= 4）かつスタッフ一覧取得済みの場合はプルダウン -->
           <select
-            v-if="activeUsers.length > 0"
+            v-if="canChangeStaff && activeUsers.length > 0"
             v-model="form.staffName"
             class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white text-sm font-semibold focus:border-brand-500 focus:ring-brand-500 px-3 py-2"
           >
@@ -261,7 +267,7 @@ async function handleSubmit() {
               {{ u.name }}
             </option>
           </select>
-          <!-- フォールバック: 取得失敗時はテキスト表示 -->
+          <!-- それ以外: ログイン中ユーザー名を読み取り専用で表示 -->
           <p v-else class="font-semibold text-neutral-900 dark:text-neutral-50">
             {{ form.staffName || '—' }}
           </p>

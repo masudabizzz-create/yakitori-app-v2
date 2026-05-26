@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { insertAuditLog } from '@/lib/audit'
 import type { AppUser, Tenant, UserRole } from '@/types'
 
 /**
@@ -124,6 +125,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** ログアウトする。 */
   async function logout(): Promise<void> {
+    // 監査ログ（signOut 前に記録: 後では auth.uid() が null になる）
+    await insertAuditLog({
+      tenantId: appUser.value?.tenant_id ?? null,
+      action: 'auth.logout',
+      actorName: appUser.value?.name ?? null,
+    })
     await supabase.auth.signOut()
     authUser.value = null
     appUser.value = null
