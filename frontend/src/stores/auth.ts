@@ -5,6 +5,9 @@ import { supabase } from '@/lib/supabase'
 import { insertAuditLog } from '@/lib/audit'
 import type { AppUser, Tenant, UserRole } from '@/types'
 
+/** localStorage に保存する入店中テナント ID のキー */
+const ACTIVE_TENANT_KEY = 'yakitori_active_tenant_id'
+
 /**
  * 認証ストア
  * Supabase Auth のセッションと、users テーブルのアプリ内ユーザー情報を管理する。
@@ -14,8 +17,10 @@ export const useAuthStore = defineStore('auth', () => {
   const appUser = ref<AppUser | null>(null)
   const loading = ref(true)
   /**
-   * platform_admin / manager が別テナントのコンテキストで操作する際に設定するテナントID。
-   * undefined のときは appUser.tenant_id（自テナント）を使用する。
+   * 入店中のテナントID。
+   * - undefined のときは appUser.tenant_id（自テナント）を使用する。
+   * - localStorage に保存し、ページリロード後も維持する。
+   * - テナント切り替え時は enterTenant() を使う。
    */
   const activeTenantId = ref<string | undefined>(undefined)
   /** アクセス可能な全店舗一覧（RLS によって自動フィルタリング） */
@@ -59,13 +64,18 @@ export const useAuthStore = defineStore('auth', () => {
     initPromise = (async () => {
       const { data } = await supabase.auth.getSession()
       authUser.value = data.session?.user ?? null
-      if (authUser.value) await fetchAppUser()
+      if (authUser.value) {
+        await fetchAppUser()
+        // localStorage からアクティブテナントを復元（検証は fetchAppUser 完了後）
+        _restoreActiveTenant()
+      }
       loading.value = false
 
       supabase.auth.onAuthStateChange(async (_event, session) => {
         authUser.value = session?.user ?? null
         if (authUser.value) {
           await fetchAppUser()
+          _restoreActiveTenant()
         } else {
           appUser.value = null
           activeTenantId.value = undefined
@@ -74,6 +84,23 @@ export const useAuthStore = defineStore('auth', () => {
       })
     })()
     return initPromise
+  }
+
+  /**
+   * localStorage に保存されたテナントIDを検証して activeTenantId に復元する。
+   * アクセス可能なテナント一覧に含まれない場合は localStorage をクリアする。
+   */
+  function _restoreActiveTenant(): void {
+    const saved = localStorage.getItem(ACTIVE_TENANT_KEY)
+    if (!saved) return
+    const accessible = accessibleTenants.value
+    if (accessible.length === 0 || accessible.some((t) => t.id === saved)) {
+      activeTenantId.value = saved
+    } else {
+      // アクセス権がなくなったテナントは削除
+      localStorage.removeItem(ACTIVE_TENANT_KEY)
+      activeTenantId.value = undefined
+    }
   }
 
   /** users テーブルから自分のレコードを取得し、アクセス可能な店舗一覧も更新する。 */
@@ -109,9 +136,45 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * 操作対象テナントを切り替える（platform_admin / manager 利用可）。
-   * undefined を渡すと自テナントに戻る。
-   * store_owner 以下は undefined のみ受け付け（自テナントリセット）。
+   * 店舗に入店する（JWT の app_metadata を更新し、RLS を切り替える）。
+   * - platform_admin / manager: Edge Function 経由で JWT 更新 → セッションリフレッシュ
+   * - その他のロール: localStorage へ保存のみ（自テナントのみ許可）
+   * - undefined を渡すと自テナント（ホーム）に戻る
+   */
+  async function enterTenant(id: string | undefined): Promise<void> {
+    const targetId = id ?? appUser.value?.tenant_id
+    if (!targetId) return
+
+    // platform_admin / manager のみ JWT 更新が必要（他ロールは自テナントのみ）
+    if (role.value === 'platform_admin' || role.value === 'manager') {
+      const { error } = await supabase.functions.invoke('enter-tenant', {
+        body: { tenant_id: targetId },
+      })
+      if (error) {
+        let detail = error.message
+        if (error.name === 'FunctionsHttpError') {
+          try {
+            const body = await (error.context as Response).json() as { error?: string }
+            detail = body.error ?? error.message
+          } catch { /* ignore */ }
+        }
+        throw new Error(`入店失敗: ${detail}`)
+      }
+      // JWT に active_tenant_id を反映させるためセッションをリフレッシュ
+      await supabase.auth.refreshSession()
+    }
+
+    activeTenantId.value = id  // undefined = ホームテナントに戻る
+    if (id) {
+      localStorage.setItem(ACTIVE_TENANT_KEY, id)
+    } else {
+      localStorage.removeItem(ACTIVE_TENANT_KEY)
+    }
+  }
+
+  /**
+   * @deprecated enterTenant() を使ってください。
+   * 後方互換のために残す（同期版・JWT更新なし）。
    */
   function setActiveTenantId(id: string | undefined): void {
     if (
@@ -136,6 +199,7 @@ export const useAuthStore = defineStore('auth', () => {
     appUser.value = null
     activeTenantId.value = undefined
     accessibleTenants.value = []
+    localStorage.removeItem(ACTIVE_TENANT_KEY)
   }
 
   /** ログイン中ユーザー自身のパスワードを変更する（Supabase Auth）。 */
@@ -157,6 +221,7 @@ export const useAuthStore = defineStore('auth', () => {
     effectiveTenantId,
     accessibleTenants,
     setActiveTenantId,
+    enterTenant,
     initialize,
     fetchAppUser,
     fetchAccessibleTenants,

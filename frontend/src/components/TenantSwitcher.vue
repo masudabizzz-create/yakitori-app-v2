@@ -54,9 +54,14 @@ function cancelSwitch() {
   pendingTenantId.value = null
 }
 
-function doSwitch(tenantId: string) {
-  auth.setActiveTenantId(tenantId)
+async function doSwitch(tenantId: string) {
   showMenu.value = false
+  try {
+    await auth.enterTenant(tenantId)
+  } catch (e) {
+    // 切り替え失敗は画面の再読み込みで対処（エラーは無視）
+    console.error('テナント切り替え失敗:', e)
+  }
 }
 
 /** メニュー外クリックで閉じる */

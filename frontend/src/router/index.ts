@@ -91,6 +91,13 @@ const router = createRouter({
       },
     },
     {
+      // platform_admin / manager が複数店舗にアクセス可能な場合にログイン後表示される
+      path: '/select-tenant',
+      name: 'select-tenant',
+      component: () => import('@/views/SelectTenantView.vue'),
+      meta: { requiresAuth: true, title: '店舗を選択' },
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/',
     },
@@ -119,9 +126,25 @@ router.beforeEach(async (to) => {
     }
   }
 
-  // 認証済みでログイン画面へ → ホームへ
+  // 認証済みでログイン画面へ → 店舗選択 or ホームへ
   if (to.name === 'login' && auth.isAuthenticated) {
+    if (!auth.activeTenantId && auth.accessibleTenants.length > 1) {
+      return { name: 'select-tenant' }
+    }
     return { name: 'home' }
+  }
+
+  // 店舗選択が必要か判定（select-tenant 自体は対象外）
+  if (
+    auth.isAuthenticated &&
+    to.meta.requiresAuth &&
+    to.name !== 'select-tenant'
+  ) {
+    const tenants = auth.accessibleTenants
+    if (!auth.activeTenantId && tenants.length > 1) {
+      // 複数テナントにアクセス可能で未選択 → 選択画面へ
+      return { name: 'select-tenant' }
+    }
   }
 
   // ロールチェック: allowedRoles が設定されていて該当しない → ホームへ
