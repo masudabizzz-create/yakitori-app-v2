@@ -119,7 +119,13 @@ router.beforeEach(async (to) => {
 
   // is_active チェック: 毎ナビゲーションで退職者を再確認（stale キャッシュ対策）
   if (auth.isAuthenticated) {
-    await auth.fetchAppUser()
+    try {
+      await auth.fetchAppUser()
+    } catch {
+      // AuthApiError（Invalid Refresh Token など）→ 自動ログアウト
+      await auth.logout()
+      return { name: 'login' }
+    }
     if (auth.appUser?.is_active === false) {
       await auth.logout()
       return { name: 'login' }
@@ -141,6 +147,14 @@ router.beforeEach(async (to) => {
     to.name !== 'select-tenant'
   ) {
     const tenants = auth.accessibleTenants
+    // DEBUG: 原因特定用（確認後に削除）
+    console.log('[router] tenant check:', {
+      activeTenantId: auth.activeTenantId,
+      tenantsLength: tenants.length,
+      tenants: tenants.map(t => t.name),
+      role: auth.role,
+      appUser: auth.appUser?.name,
+    })
     if (!auth.activeTenantId && tenants.length > 1) {
       // 複数テナントにアクセス可能で未選択 → 選択画面へ
       return { name: 'select-tenant' }

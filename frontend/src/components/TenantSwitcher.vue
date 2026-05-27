@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const router = useRouter()
 
 const showMenu = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
@@ -59,8 +61,11 @@ async function doSwitch(tenantId: string) {
   try {
     await auth.enterTenant(tenantId)
   } catch (e) {
-    // 切り替え失敗は画面の再読み込みで対処（エラーは無視）
     console.error('テナント切り替え失敗:', e)
+    // セッション切れでログアウトされた場合はログイン画面へ
+    if (!auth.isAuthenticated) {
+      router.push({ name: 'login' })
+    }
   }
 }
 

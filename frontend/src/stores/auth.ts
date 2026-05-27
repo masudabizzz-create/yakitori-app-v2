@@ -161,7 +161,12 @@ export const useAuthStore = defineStore('auth', () => {
         throw new Error(`入店失敗: ${detail}`)
       }
       // JWT に active_tenant_id を反映させるためセッションをリフレッシュ
-      await supabase.auth.refreshSession()
+      const { error: refreshError } = await supabase.auth.refreshSession()
+      if (refreshError) {
+        // リフレッシュ失敗（Invalid Refresh Token など）→ ログアウト
+        await logout()
+        throw new Error('セッションが切れました。再ログインしてください。')
+      }
     }
 
     activeTenantId.value = id  // undefined = ホームテナントに戻る
