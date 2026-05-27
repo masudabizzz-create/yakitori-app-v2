@@ -62,20 +62,42 @@ export const useAuthStore = defineStore('auth', () => {
   function initialize(): Promise<void> {
     if (initPromise) return initPromise
     initPromise = (async () => {
-      const { data } = await supabase.auth.getSession()
-      authUser.value = data.session?.user ?? null
-      if (authUser.value) {
-        await fetchAppUser()
-        // localStorage からアクティブテナントを復元（検証は fetchAppUser 完了後）
-        _restoreActiveTenant()
+      try {
+        const { data } = await supabase.auth.getSession()
+        authUser.value = data.session?.user ?? null
+        if (authUser.value) {
+          try {
+            await fetchAppUser()
+            // localStorage からアクティブテナントを復元（検証は fetchAppUser 完了後）
+            _restoreActiveTenant()
+          } catch {
+            // fetchAppUser 失敗（Invalid Refresh Token など）→ ローカル状態をクリア
+            authUser.value = null
+            appUser.value = null
+            activeTenantId.value = undefined
+            accessibleTenants.value = []
+            localStorage.removeItem(ACTIVE_TENANT_KEY)
+            await supabase.auth.signOut()
+          }
+        }
+      } finally {
+        // 成功・失敗に関わらず必ず loading を解除する
+        loading.value = false
       }
-      loading.value = false
 
       supabase.auth.onAuthStateChange(async (_event, session) => {
         authUser.value = session?.user ?? null
         if (authUser.value) {
-          await fetchAppUser()
-          _restoreActiveTenant()
+          try {
+            await fetchAppUser()
+            _restoreActiveTenant()
+          } catch {
+            // セッション切れ → クリア（router が /login へリダイレクトする）
+            authUser.value = null
+            appUser.value = null
+            activeTenantId.value = undefined
+            accessibleTenants.value = []
+          }
         } else {
           appUser.value = null
           activeTenantId.value = undefined
