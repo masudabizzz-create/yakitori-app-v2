@@ -171,52 +171,91 @@ CREATE POLICY "order_schedules_write_manager" ON order_schedules
   );
 
 -- ─── 8. order_schedule_irregulars ────────────────────────────────
-DROP POLICY IF EXISTS "order_irregulars_select" ON order_schedule_irregulars;
-CREATE POLICY "order_irregulars_select" ON order_schedule_irregulars
-  FOR SELECT USING (tenant_id = public.current_tenant_id());
+-- テーブルが存在する場合のみ適用する
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public'
+       AND table_name   = 'order_schedule_irregulars'
+  ) THEN
+    DROP POLICY IF EXISTS "order_irregulars_select" ON order_schedule_irregulars;
+    EXECUTE $p$
+      CREATE POLICY "order_irregulars_select" ON order_schedule_irregulars
+        FOR SELECT USING (tenant_id = public.current_tenant_id())
+    $p$;
 
-DROP POLICY IF EXISTS "order_irregulars_write_manager" ON order_schedule_irregulars;
-CREATE POLICY "order_irregulars_write_manager" ON order_schedule_irregulars
-  FOR ALL USING (
-    tenant_id = public.current_tenant_id()
-    AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
-  )
-  WITH CHECK (
-    tenant_id = public.current_tenant_id()
-    AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
-  );
+    DROP POLICY IF EXISTS "order_irregulars_write_manager" ON order_schedule_irregulars;
+    EXECUTE $p$
+      CREATE POLICY "order_irregulars_write_manager" ON order_schedule_irregulars
+        FOR ALL USING (
+          tenant_id = public.current_tenant_id()
+          AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
+        )
+        WITH CHECK (
+          tenant_id = public.current_tenant_id()
+          AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
+        )
+    $p$;
+  END IF;
+END;
+$$;
 
 -- ─── 9. delivery_blackout_periods ────────────────────────────────
-DROP POLICY IF EXISTS "blackout_periods_select" ON delivery_blackout_periods;
-CREATE POLICY "blackout_periods_select" ON delivery_blackout_periods
-  FOR SELECT USING (tenant_id = public.current_tenant_id());
-
-DROP POLICY IF EXISTS "blackout_periods_write_manager" ON delivery_blackout_periods;
-CREATE POLICY "blackout_periods_write_manager" ON delivery_blackout_periods
-  FOR ALL USING (
-    tenant_id = public.current_tenant_id()
-    AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
-  )
-  WITH CHECK (
-    tenant_id = public.current_tenant_id()
-    AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
-  );
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'delivery_blackout_periods'
+  ) THEN
+    DROP POLICY IF EXISTS "blackout_periods_select" ON delivery_blackout_periods;
+    EXECUTE $p$
+      CREATE POLICY "blackout_periods_select" ON delivery_blackout_periods
+        FOR SELECT USING (tenant_id = public.current_tenant_id())
+    $p$;
+    DROP POLICY IF EXISTS "blackout_periods_write_manager" ON delivery_blackout_periods;
+    EXECUTE $p$
+      CREATE POLICY "blackout_periods_write_manager" ON delivery_blackout_periods
+        FOR ALL USING (
+          tenant_id = public.current_tenant_id()
+          AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
+        )
+        WITH CHECK (
+          tenant_id = public.current_tenant_id()
+          AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
+        )
+    $p$;
+  END IF;
+END;
+$$;
 
 -- ─── 10. delivery_irregular_dates ────────────────────────────────
-DROP POLICY IF EXISTS "irregular_dates_select" ON delivery_irregular_dates;
-CREATE POLICY "irregular_dates_select" ON delivery_irregular_dates
-  FOR SELECT USING (tenant_id = public.current_tenant_id());
-
-DROP POLICY IF EXISTS "irregular_dates_write_manager" ON delivery_irregular_dates;
-CREATE POLICY "irregular_dates_write_manager" ON delivery_irregular_dates
-  FOR ALL USING (
-    tenant_id = public.current_tenant_id()
-    AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
-  )
-  WITH CHECK (
-    tenant_id = public.current_tenant_id()
-    AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
-  );
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'delivery_irregular_dates'
+  ) THEN
+    DROP POLICY IF EXISTS "irregular_dates_select" ON delivery_irregular_dates;
+    EXECUTE $p$
+      CREATE POLICY "irregular_dates_select" ON delivery_irregular_dates
+        FOR SELECT USING (tenant_id = public.current_tenant_id())
+    $p$;
+    DROP POLICY IF EXISTS "irregular_dates_write_manager" ON delivery_irregular_dates;
+    EXECUTE $p$
+      CREATE POLICY "irregular_dates_write_manager" ON delivery_irregular_dates
+        FOR ALL USING (
+          tenant_id = public.current_tenant_id()
+          AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
+        )
+        WITH CHECK (
+          tenant_id = public.current_tenant_id()
+          AND public.current_user_role() IN ('platform_admin', 'manager', 'store_owner')
+        )
+    $p$;
+  END IF;
+END;
+$$;
 
 -- ─── 11. daily_logs ──────────────────────────────────────────────
 DROP POLICY IF EXISTS "daily_logs_select" ON daily_logs;
