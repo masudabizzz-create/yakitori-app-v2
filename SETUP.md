@@ -283,9 +283,18 @@ supabase link --project-ref mmquefvklrxjcmoxgvjb
 
 ```bash
 supabase functions deploy send-line
+supabase functions deploy enter-tenant
 ```
 
-成功すると `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/send-line` で公開されます。
+成功すると以下の URL で公開されます：
+- `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/send-line`
+- `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/enter-tenant`
+
+#### enter-tenant の役割
+
+テナント切り替え時に `auth.users.app_metadata.active_tenant_id` を更新する Edge Function。
+更新後フロントエンドが `supabase.auth.refreshSession()` を呼ぶことで、
+新しい JWT に `active_tenant_id` が含まれ、RLS の `current_tenant_id()` に反映される。
 
 ### 4-4. 動作確認
 
