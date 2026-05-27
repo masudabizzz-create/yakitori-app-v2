@@ -117,7 +117,10 @@ function parseSkewers(rows: Row[], tenantId: string) {
       prep_amount2:       num(r[13]),
       is_active:          bool(r[14]),
       prep_method_name:   str(r[15], '昆布締め'),
-      course_type:        str(r[16], 'all_courses'),
+      // 'additional_only' は DB に存在しない値 → specific_courses（対象コースなし）に変換
+      course_type:        str(r[16], 'all_courses') === 'additional_only'
+                            ? 'specific_courses'
+                            : str(r[16], 'all_courses'),
       target_courses:     splitCsv(r[17]),
       weight_per_stick_g: num(r[18]),
       yield_rate:         num(r[19], 1.0),
@@ -161,7 +164,7 @@ function parseSettings(rows: Row[], tenantId: string) {
     course_casual_skewers:   num(kv['course_casual_skewers'], 10),
     course_standard_skewers: num(kv['course_standard_skewers'], 15),
     course_premium_skewers:  num(kv['course_premium_skewers'],  20),
-    line_token:              str(kv['line_token']),  // セキュリティ上空のまま
+    // line_token は移行対象外（既存設定を上書きしないよう除外）
   }
 }
 
@@ -233,17 +236,35 @@ async function main() {
   console.log(`   串マスタ:         ${skewersData.length}件`)
   console.log(`   発注スケジュール: ${orderScheduleData.length}件`)
 
+  // global.headers で Authorization を明示指定（service_role が RLS をバイパスするために必須）
   const supabase = createClient(supabaseUrl, serviceKey, {
-    auth: { persistSession: false },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${serviceKey}`,
+      },
+    },
   })
 
   // ─── 1. settings ─────────────────────────────────────────────
+  // 既存レコードを UPDATE（テナント作成時に settings 行は自動生成されるため）
+  // 失敗（例: レコード未存在・RLS）してもスキップして続行する
   console.log('\n📋 settings を移行中...')
+  const { tenant_id: _tid, ...settingsPatch } = settingsData
   const { error: settingsErr } = await supabase
     .from('settings')
-    .upsert(settingsData, { onConflict: 'tenant_id' })
-  if (settingsErr) throw new Error(`settings 移行失敗: ${settingsErr.message}`)
-  console.log('   ✅ settings')
+    .update(settingsPatch)
+    .eq('tenant_id', tenantId)
+  if (settingsErr) {
+    console.warn(`   ⚠️  settings スキップ（${settingsErr.message}）`)
+    console.warn('      → アプリの「システム管理 > システム設定」から手動で設定してください')
+  } else {
+    console.log('   ✅ settings')
+  }
 
   // ─── 2. skewers ──────────────────────────────────────────────
   console.log('🍢 skewers を移行中...')
