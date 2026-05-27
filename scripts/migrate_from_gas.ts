@@ -1,9 +1,10 @@
 /**
- * GAS（Google Spreadsheet）→ Supabase 移行スクリプト
+ * Excel（.xlsx）→ Supabase 移行スクリプト
  *
- * 前提:
- *   - gas_export.js を実行して gas_export.json を取得済み
- *   - Supabase で 001〜003 のマイグレーション適用済み
+ * 読み込み対象シート:
+ *   - skewers       : 串マスタ（1行目=ヘッダー、2行目以降=データ）
+ *   - settings      : コース設定（ヘッダーなし、キーバリュー形式）
+ *   - order_schedule: 発注スケジュール（ヘッダーなし）
  *
  * 実行:
  *   cd scripts && npm install
@@ -11,278 +12,257 @@
  *
  * 環境変数:
  *   SUPABASE_URL              … https://xxxx.supabase.co
- *   SUPABASE_SERVICE_ROLE_KEY … service_role キー（RLSをバイパスするため必須）
+ *   SUPABASE_SERVICE_ROLE_KEY … service_role キー（RLS バイパスに必須）
  *   TENANT_ID                 … 省略時 00000000-0000-0000-0000-000000000001
- *   EXPORT_FILE               … 省略時 ./gas_export.json
+ *   EXCEL_FILE                … 省略時 ~/Downloads/串管理アプリ改_202605.xlsx
  */
 
-import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { createClient } from '@supabase/supabase-js'
 
-// ---------------- GAS エクスポート形式 ----------------
+// xlsx は CJS モジュールのため createRequire で読み込む
+const require = createRequire(import.meta.url)
+const XLSX = require('xlsx') as typeof import('xlsx')
 
-interface GasSkewer {
-  name: string
-  category: string
-  ideal: number[] // [月,火,水,木,金,土,日]
-  unit: number
-  threshold1: number
-  prepAmount1: number
-  threshold2: number
-  prepAmount2: number
-  active: boolean
-  prepMethodName: string
-  courseType: string
-  targetCourses: string[]
-  weightPerStickG: number
-  yieldRate: number
-  orderUnitLabel: string
-  orderUnitG: number
+// ============================================================
+// ヘルパー
+// ============================================================
+
+type Row = unknown[]
+
+/** 数値変換（NaN・null は def を返す） */
+function num(v: unknown, def = 0): number {
+  const n = Number(v)
+  return isNaN(n) ? def : n
 }
 
-interface GasStockEntry {
-  skewerName: string
-  stock: number
-  isKombu: boolean
+/** 文字列変換（null・undefined・NaN は def を返す） */
+function str(v: unknown, def = ''): string {
+  if (v === null || v === undefined) return def
+  const s = String(v).trim()
+  return s === 'NaN' || s === '' ? def : s
 }
 
-interface GasDailyLog {
-  date: string
-  dayOfWeek: string
-  staffName: string
-  recordedAt: string
-  courseCasual: number
-  courseStandard: number
-  coursePremium: number
-  extraSkewers: number
-  totalSkewers: number
-  totalSales: number
-  drinkSales: number
-  drinkRatio: number
-  memo: string
-  stocks: GasStockEntry[]
+/** 真偽値変換 */
+function bool(v: unknown): boolean {
+  if (typeof v === 'boolean') return v
+  const s = String(v).toLowerCase().trim()
+  return s === 'true' || s === '1' || s === 'yes'
 }
 
-interface GasSettings {
-  sundayBoostEnabled: boolean
-  courseCasualPrice: number
-  courseStandardPrice: number
-  coursePremiumPrice: number
-  courseCasualSkewers: number
-  courseStandardSkewers: number
-  coursePremiumSkewers: number
-  lineToken: string
+/** "a,b,c" → ['a','b','c']（空文字除去） */
+function splitCsv(v: unknown): string[] {
+  const s = str(v)
+  return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : []
 }
 
-interface GasOrderSchedule {
-  deadlineDow: number
-  deliveryDow: number
-  upliftWeekday: number
-  upliftHoliday: number
+/** ~/... をホームディレクトリに展開 */
+function expandHome(p: string): string {
+  return p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p
 }
 
-interface GasOrderScheduleIrregular {
-  weekStartDate: string
-  deadlineDate: string
-  deliveryDate: string
-  upliftWeekday: number
-  upliftHoliday: number
-  note: string
+// ============================================================
+// シートパーサー
+// ============================================================
+
+/**
+ * skewers シート → Supabase INSERT 用オブジェクト配列
+ *
+ * 列マッピング（0 始まり）:
+ *  0  串名          name
+ *  1  カテゴリ       category
+ *  2  理想_月        ideal_mon
+ *  3  理想_火        ideal_tue
+ *  4  理想_水        ideal_wed
+ *  5  理想_木        ideal_thu
+ *  6  理想_金        ideal_fri
+ *  7  理想_土        ideal_sat
+ *  8  理想_日        ideal_sun
+ *  9  単位           unit
+ * 10  閾値1          threshold1
+ * 11  仕込量1        prep_amount1
+ * 12  閾値2          threshold2
+ * 13  仕込量2        prep_amount2
+ * 14  有効           is_active
+ * 15  仕込み名        prep_method_name
+ * 16  コース分類      course_type
+ * 17  対象コース      target_courses (CSV)
+ * 18  重量g/本       weight_per_stick_g
+ * 19  歩留まり率      yield_rate
+ * 20  発注単位        order_unit_label
+ * 21  発注単位g      order_unit_g
+ */
+function parseSkewers(rows: Row[], tenantId: string) {
+  // 1行目はヘッダーなのでスキップ
+  return rows
+    .slice(1)
+    .filter((r) => str(r[0]))  // 串名が空の行は除外
+    .map((r, i) => ({
+      tenant_id:          tenantId,
+      name:               str(r[0]),
+      category:           str(r[1]),
+      ideal_mon:          num(r[2]),
+      ideal_tue:          num(r[3]),
+      ideal_wed:          num(r[4]),
+      ideal_thu:          num(r[5]),
+      ideal_fri:          num(r[6]),
+      ideal_sat:          num(r[7]),
+      ideal_sun:          num(r[8]),
+      unit:               num(r[9], 1),
+      threshold1:         num(r[10]),
+      prep_amount1:       num(r[11]),
+      threshold2:         num(r[12]),
+      prep_amount2:       num(r[13]),
+      is_active:          bool(r[14]),
+      prep_method_name:   str(r[15], '昆布締め'),
+      course_type:        str(r[16], 'all_courses'),
+      target_courses:     splitCsv(r[17]),
+      weight_per_stick_g: num(r[18]),
+      yield_rate:         num(r[19], 1.0),
+      order_unit_label:   str(r[20]),
+      order_unit_g:       num(r[21]),
+      sort_order:         i,
+    }))
 }
 
-interface GasExport {
-  skewers: GasSkewer[]
-  dailyLogs: GasDailyLog[]
-  settings: GasSettings
-  orderSchedules: GasOrderSchedule[]
-  orderScheduleIrregulars: GasOrderScheduleIrregular[]
+/**
+ * settings シート → Supabase upsert 用オブジェクト
+ *
+ * ヘッダーなし。col 0 = キー名、col 1 = 値。
+ * Supabase settings テーブルに存在するキーのみ使用。
+ */
+function parseSettings(rows: Row[], tenantId: string) {
+  const SUPABASE_SETTINGS_KEYS = new Set([
+    'sunday_boost_enabled',
+    'course_casual_price',
+    'course_standard_price',
+    'course_premium_price',
+    'course_casual_skewers',
+    'course_standard_skewers',
+    'course_premium_skewers',
+    'line_token',
+  ])
+
+  const kv: Record<string, unknown> = {}
+  for (const r of rows) {
+    const key = str(r[0])
+    if (!key || !SUPABASE_SETTINGS_KEYS.has(key)) continue
+    kv[key] = r[1]
+  }
+
+  return {
+    tenant_id:               tenantId,
+    sunday_boost_enabled:    bool(kv['sunday_boost_enabled']),
+    course_casual_price:     num(kv['course_casual_price'],   3500),
+    course_standard_price:   num(kv['course_standard_price'], 4500),
+    course_premium_price:    num(kv['course_premium_price'],  5800),
+    course_casual_skewers:   num(kv['course_casual_skewers'], 10),
+    course_standard_skewers: num(kv['course_standard_skewers'], 15),
+    course_premium_skewers:  num(kv['course_premium_skewers'],  20),
+    line_token:              str(kv['line_token']),  // セキュリティ上空のまま
+  }
 }
 
-// ---------------- ヘルパー ----------------
-
-/** "yyyy/MM/dd" -> "yyyy-MM-dd" */
-function toIsoDate(gasDate: string): string {
-  return gasDate.replace(/\//g, '-')
+/**
+ * order_schedule シート → Supabase INSERT 用オブジェクト配列
+ *
+ * ヘッダーなし。
+ *  col 0  deadline_dow   (締め切り曜日: 0=日〜6=土)
+ *  col 1  delivery_dow   (納品曜日)
+ *  col 2  uplift_weekday (平日上乗せ率)
+ *  col 3  uplift_holiday (祝日上乗せ率)
+ */
+function parseOrderSchedules(rows: Row[], tenantId: string) {
+  return rows
+    .filter((r) => r[0] !== null && r[0] !== undefined && str(r[0]) !== '')
+    .map((r, i) => ({
+      tenant_id:      tenantId,
+      deadline_dow:   num(r[0]),
+      delivery_dow:   num(r[1]),
+      uplift_weekday: num(r[2]),
+      uplift_holiday: num(r[3]),
+      sort_order:     i,
+    }))
 }
 
-/** "yyyy/MM/dd HH:mm:ss" -> ISO8601(+09:00) */
-function toIsoDateTime(gasDateTime: string): string {
-  const [datePart, timePart] = gasDateTime.split(' ')
-  if (!datePart) return new Date().toISOString()
-  const d = datePart.replace(/\//g, '-')
-  return timePart ? `${d}T${timePart}+09:00` : `${d}T00:00:00+09:00`
-}
-
-// ---------------- メイン ----------------
+// ============================================================
+// メイン
+// ============================================================
 
 async function main() {
-  const supabaseUrl = process.env.SUPABASE_URL
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const tenantId = process.env.TENANT_ID ?? '00000000-0000-0000-0000-000000000001'
-  const exportFile = process.env.EXPORT_FILE ?? './gas_export.json'
+  const supabaseUrl  = process.env.SUPABASE_URL
+  const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const tenantId     = process.env.TENANT_ID ?? '00000000-0000-0000-0000-000000000001'
+  const excelFile    = expandHome(
+    process.env.EXCEL_FILE ?? '~/Downloads/串管理アプリ改_202605.xlsx'
+  )
 
   if (!supabaseUrl || !serviceKey) {
     console.error('❌ SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY を環境変数に設定してください')
     process.exit(1)
   }
 
+  // Excel を読み込む
+  console.log(`\n📂 Excel 読み込み: ${excelFile}`)
+  const wb = XLSX.readFile(excelFile)
+
+  const REQUIRED = ['skewers', 'settings', 'order_schedule']
+  for (const name of REQUIRED) {
+    if (!wb.SheetNames.includes(name)) {
+      console.error(`❌ シート "${name}" が見つかりません（存在するシート: ${wb.SheetNames.join(', ')}）`)
+      process.exit(1)
+    }
+  }
+
+  // sheet_to_json は header:1 で全行を配列として返す
+  const toRows = (sheetName: string): Row[] =>
+    XLSX.utils.sheet_to_json<Row>(wb.Sheets[sheetName], { header: 1, defval: null })
+
+  const skewersRows       = toRows('skewers')
+  const settingsRows      = toRows('settings')
+  const orderScheduleRows = toRows('order_schedule')
+
+  const skewersData       = parseSkewers(skewersRows, tenantId)
+  const settingsData      = parseSettings(settingsRows, tenantId)
+  const orderScheduleData = parseOrderSchedules(orderScheduleRows, tenantId)
+
+  console.log(`\n🍢 移行開始`)
+  console.log(`   テナント:         ${tenantId}`)
+  console.log(`   串マスタ:         ${skewersData.length}件`)
+  console.log(`   発注スケジュール: ${orderScheduleData.length}件`)
+
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false },
   })
 
-  const data: GasExport = JSON.parse(
-    fs.readFileSync(path.resolve(exportFile), 'utf-8')
-  )
-
-  console.log('\n🍢 GAS → Supabase 移行開始')
-  console.log(`   テナント: ${tenantId}`)
-  console.log(`   串マスタ: ${data.skewers.length}件 / 日次ログ: ${data.dailyLogs.length}件\n`)
-
-  // --- 1. settings ---
-  console.log('📋 settings を移行中...')
-  const { error: settingsErr } = await supabase.from('settings').upsert(
-    {
-      tenant_id: tenantId,
-      sunday_boost_enabled: data.settings.sundayBoostEnabled,
-      course_casual_price: data.settings.courseCasualPrice,
-      course_standard_price: data.settings.courseStandardPrice,
-      course_premium_price: data.settings.coursePremiumPrice,
-      course_casual_skewers: data.settings.courseCasualSkewers,
-      course_standard_skewers: data.settings.courseStandardSkewers,
-      course_premium_skewers: data.settings.coursePremiumSkewers,
-      line_token: data.settings.lineToken ?? '',
-    },
-    { onConflict: 'tenant_id' }
-  )
+  // ─── 1. settings ─────────────────────────────────────────────
+  console.log('\n📋 settings を移行中...')
+  const { error: settingsErr } = await supabase
+    .from('settings')
+    .upsert(settingsData, { onConflict: 'tenant_id' })
   if (settingsErr) throw new Error(`settings 移行失敗: ${settingsErr.message}`)
   console.log('   ✅ settings')
 
-  // --- 2. skewers ---
+  // ─── 2. skewers ──────────────────────────────────────────────
   console.log('🍢 skewers を移行中...')
-  const skewerRows = data.skewers.map((s, i) => ({
-    tenant_id: tenantId,
-    name: s.name,
-    category: s.category,
-    ideal_mon: s.ideal[0] ?? 0,
-    ideal_tue: s.ideal[1] ?? 0,
-    ideal_wed: s.ideal[2] ?? 0,
-    ideal_thu: s.ideal[3] ?? 0,
-    ideal_fri: s.ideal[4] ?? 0,
-    ideal_sat: s.ideal[5] ?? 0,
-    ideal_sun: s.ideal[6] ?? 0,
-    unit: s.unit,
-    threshold1: s.threshold1,
-    prep_amount1: s.prepAmount1,
-    threshold2: s.threshold2,
-    prep_amount2: s.prepAmount2,
-    is_active: s.active,
-    prep_method_name: s.prepMethodName || '昆布締め',
-    course_type: s.courseType || 'all_courses',
-    target_courses: s.targetCourses ?? [],
-    weight_per_stick_g: s.weightPerStickG ?? 0,
-    yield_rate: s.yieldRate ?? 1.0,
-    order_unit_label: s.orderUnitLabel ?? '',
-    order_unit_g: s.orderUnitG ?? 0,
-    sort_order: i,
-  }))
-
-  const { data: insertedSkewers, error: skewerErr } = await supabase
+  const { error: skewerErr } = await supabase
     .from('skewers')
-    .insert(skewerRows)
-    .select('id, name')
+    .insert(skewersData)
   if (skewerErr) throw new Error(`skewers 移行失敗: ${skewerErr.message}`)
+  console.log(`   ✅ skewers ${skewersData.length}件`)
 
-  const skewerNameToId = new Map<string, string>(
-    (insertedSkewers ?? []).map((s: { id: string; name: string }) => [s.name, s.id])
-  )
-  console.log(`   ✅ skewers ${skewerRows.length}件`)
-
-  // --- 3. daily_logs + daily_log_stocks ---
-  console.log('📊 daily_logs を移行中...')
-  let logCount = 0
-  for (const log of data.dailyLogs) {
-    const { data: logData, error: logErr } = await supabase
-      .from('daily_logs')
-      .upsert(
-        {
-          tenant_id: tenantId,
-          log_date: toIsoDate(log.date),
-          day_of_week: log.dayOfWeek,
-          staff_name: log.staffName,
-          recorded_at: toIsoDateTime(log.recordedAt),
-          course_casual: log.courseCasual,
-          course_standard: log.courseStandard,
-          course_premium: log.coursePremium,
-          extra_skewers: log.extraSkewers,
-          total_skewers: log.totalSkewers,
-          total_sales: log.totalSales,
-          drink_sales: log.drinkSales,
-          drink_ratio: log.drinkRatio,
-          memo: log.memo ?? '',
-        },
-        { onConflict: 'tenant_id,log_date' }
-      )
-      .select('id')
-      .single()
-
-    if (logErr) {
-      console.warn(`   ⚠️  ${log.date}: ${logErr.message}`)
-      continue
-    }
-
-    const logId = (logData as { id: string }).id
-    const stockRows = log.stocks
-      .filter((s) => skewerNameToId.has(s.skewerName))
-      .map((s) => ({
-        daily_log_id: logId,
-        skewer_id: skewerNameToId.get(s.skewerName)!,
-        stock: s.stock,
-        is_kombu: s.isKombu,
-      }))
-
-    if (stockRows.length > 0) {
-      await supabase.from('daily_log_stocks').delete().eq('daily_log_id', logId)
-      const { error: stockErr } = await supabase.from('daily_log_stocks').insert(stockRows)
-      if (stockErr) console.warn(`   ⚠️  ${log.date} 在庫: ${stockErr.message}`)
-    }
-    logCount++
-  }
-  console.log(`   ✅ daily_logs ${logCount}件`)
-
-  // --- 4. order_schedules ---
-  if (data.orderSchedules.length > 0) {
+  // ─── 3. order_schedules ──────────────────────────────────────
+  if (orderScheduleData.length > 0) {
     console.log('📦 order_schedules を移行中...')
-    const { error } = await supabase.from('order_schedules').insert(
-      data.orderSchedules.map((s, i) => ({
-        tenant_id: tenantId,
-        deadline_dow: s.deadlineDow,
-        delivery_dow: s.deliveryDow,
-        uplift_weekday: s.upliftWeekday,
-        uplift_holiday: s.upliftHoliday,
-        sort_order: i,
-      }))
-    )
-    if (error) console.warn(`   ⚠️  order_schedules: ${error.message}`)
-    else console.log(`   ✅ order_schedules ${data.orderSchedules.length}件`)
-  }
-
-  // --- 5. order_schedule_irregulars ---
-  if (data.orderScheduleIrregulars.length > 0) {
-    console.log('📦 order_schedule_irregulars を移行中...')
-    const { error } = await supabase.from('order_schedule_irregulars').insert(
-      data.orderScheduleIrregulars.map((s) => ({
-        tenant_id: tenantId,
-        week_start_date: toIsoDate(s.weekStartDate),
-        deadline_date: toIsoDate(s.deadlineDate),
-        delivery_date: toIsoDate(s.deliveryDate),
-        uplift_weekday: s.upliftWeekday,
-        uplift_holiday: s.upliftHoliday,
-        note: s.note ?? '',
-      }))
-    )
-    if (error) console.warn(`   ⚠️  order_schedule_irregulars: ${error.message}`)
-    else console.log(`   ✅ order_schedule_irregulars ${data.orderScheduleIrregulars.length}件`)
+    const { error: schedErr } = await supabase
+      .from('order_schedules')
+      .insert(orderScheduleData)
+    if (schedErr) throw new Error(`order_schedules 移行失敗: ${schedErr.message}`)
+    console.log(`   ✅ order_schedules ${orderScheduleData.length}件`)
+  } else {
+    console.log('   ⏭  order_schedules: データなしのためスキップ')
   }
 
   console.log('\n✨ 移行完了!\n')
