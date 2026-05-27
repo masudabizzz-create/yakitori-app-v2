@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
   }
 
   // リクエストボディ解析
-  let payload: { message?: unknown }
+  let payload: { message?: unknown; tenant_id?: unknown }
   try {
     payload = await req.json()
   } catch {
@@ -69,10 +69,17 @@ Deno.serve(async (req) => {
     return json(401, { error: 'Unauthorized' })
   }
 
-  // settings から LINE トークンを取得（RLS により同テナントのみ読める）
+  // settings から LINE トークンを取得
+  // tenant_id をフロントから受け取り明示フィルター（platform_admin は複数テナントが見えるため必須）
+  // 未指定時は呼び出し元ユーザーの tenant_id を使用
+  const tenantId = typeof payload.tenant_id === 'string' && payload.tenant_id
+    ? payload.tenant_id
+    : (await supabase.from('users').select('tenant_id').eq('id', userData.user.id).single()).data?.tenant_id
+
   const { data: settings, error: settingsErr } = await supabase
     .from('settings')
     .select('line_token')
+    .eq('tenant_id', tenantId)
     .maybeSingle()
 
   if (settingsErr) {

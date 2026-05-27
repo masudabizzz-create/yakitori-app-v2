@@ -21,11 +21,12 @@ export interface LineNotifyResult {
 /**
  * Edge Function 経由で LINE へブロードキャスト送信する。
  * 失敗時は例外を投げる。
+ * tenantId: platform_admin が別テナントを操作中の場合に指定（複数テナント対応）
  */
-export async function sendLineBroadcast(message: string): Promise<void> {
-  const { error } = await supabase.functions.invoke('send-line', {
-    body: { message },
-  })
+export async function sendLineBroadcast(message: string, tenantId?: string): Promise<void> {
+  const body: Record<string, string> = { message }
+  if (tenantId) body.tenant_id = tenantId
+  const { error } = await supabase.functions.invoke('send-line', { body })
   if (error) {
     // FunctionsHttpError の場合は context（Response）から詳細メッセージを取得する。
     // SDK v2 では非 2xx 時に data=null, error=FunctionsHttpError となるため、
@@ -52,6 +53,8 @@ export interface NotifyDailyReportParams {
   staffName: string
   /** 基準日時（省略時は現在時刻） */
   now?: Date
+  /** 送信先テナントID（platform_admin が別テナントを操作中の場合に必須） */
+  tenantId?: string
 }
 
 /**
@@ -69,7 +72,7 @@ export async function notifyDailyReport(
     params.now,
   )
   try {
-    await sendLineBroadcast(message)
+    await sendLineBroadcast(message, params.tenantId)
     return { lineSent: true, lineError: '', message }
   } catch (e) {
     return {

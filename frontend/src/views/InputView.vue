@@ -203,6 +203,7 @@ async function handleSubmit() {
         memo: form.memo,
       },
       staffName: form.staffName,
+      tenantId: tenantId,
     })
 
     dailyLogStore.clearDraft()
