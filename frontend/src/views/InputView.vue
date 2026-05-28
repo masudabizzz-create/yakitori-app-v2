@@ -22,6 +22,11 @@ const settingsStore = useSettingsStore()
 const dailyLogStore = useDailyLogStore()
 const usersStore = useUsersStore()
 
+/** 現在入店中の店舗名 */
+const currentTenantName = computed(() =>
+  auth.accessibleTenants.find((t) => t.id === auth.effectiveTenantId)?.name ?? ''
+)
+
 const loading = ref(true)
 const loadError = ref('')
 const submitting = ref(false)
@@ -440,6 +445,7 @@ async function handleSubmit() {
       @confirm="handleSubmit"
     >
       <ul class="space-y-1">
+        <li class="font-semibold text-neutral-700 dark:text-neutral-200">🏪 {{ currentTenantName }}</li>
         <li>焼師: {{ form.staffName }}</li>
         <li>コース: C{{ form.courseCasual }} / S{{ form.courseStandard }} / P{{ form.coursePremium }}</li>
         <li>合計串本数: {{ totalSkewers }}本</li>

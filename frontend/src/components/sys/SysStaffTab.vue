@@ -25,6 +25,16 @@ const ROLES: { value: UserRole; label: string }[] = [
 /** 自分のランク */
 const myRank = computed<number>(() => (auth.role ? ROLE_RANK[auth.role] : 0))
 
+/** 現在入店中の店舗名 */
+const currentTenantName = computed(() =>
+  auth.accessibleTenants.find((t) => t.id === auth.effectiveTenantId)?.name ?? '',
+)
+
+/** 削除対象スタッフの名前 */
+const deleteTargetName = computed(() =>
+  usersStore.usersWithDetails.find((u) => u.id === deleteConfirmId.value)?.name ?? '',
+)
+
 /**
  * 対象ユーザーを編集できるか。
  * 自分より下位ランクのスタッフのみ操作可能。
@@ -544,6 +554,9 @@ function fmtDateTime(iso: string | null | undefined): string {
     >
       <div class="bg-card dark:bg-card-dark rounded-2xl p-6 w-full max-w-xs shadow-xl space-y-4">
         <h3 class="text-base font-semibold text-neutral-900 dark:text-neutral-50">本当に削除しますか？</h3>
+        <p class="text-sm font-medium text-amber-700 dark:text-amber-400">
+          🏪 {{ currentTenantName }} · {{ deleteTargetName }}
+        </p>
         <p class="text-sm text-neutral-500 dark:text-neutral-400">
           この操作は取り消せません。Auth アカウントと全データが完全に削除されます。
         </p>
