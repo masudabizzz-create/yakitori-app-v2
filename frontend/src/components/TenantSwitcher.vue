@@ -7,6 +7,7 @@ const auth = useAuthStore()
 const router = useRouter()
 
 const showMenu = ref(false)
+const exiting = ref(false)
 const triggerRef = ref<HTMLElement | null>(null)
 
 // ─── 店舗切り替え確認ダイアログ ──────────────────────────────
@@ -19,7 +20,7 @@ const DRAFT_KEY = 'yakitori_input_draft_v2'
 /** 現在表示中の店舗名 */
 const currentTenantName = computed(() => {
   const tid = auth.effectiveTenantId
-  if (!tid) return '（店舗未設定）'
+  if (!tid) return ''
   return auth.accessibleTenants.find((t) => t.id === tid)?.name ?? '読み込み中...'
 })
 
@@ -28,6 +29,18 @@ const canSwitch = computed(
   () =>
     (auth.role === 'platform_admin' || auth.role === 'manager') &&
     auth.accessibleTenants.length > 1,
+)
+
+/** 所属店舗以外に入店中か */
+const isVisiting = computed(() => {
+  const home = auth.appUser?.tenant_id
+  const eff = auth.effectiveTenantId
+  return !!eff && !!home && eff !== home
+})
+
+/** チップを表示するか */
+const showChip = computed(
+  () => auth.isAuthenticated && !!currentTenantName.value,
 )
 
 function selectTenant(tenantId: string) {
@@ -62,11 +75,25 @@ async function doSwitch(tenantId: string) {
     await auth.enterTenant(tenantId)
   } catch (e) {
     console.error('テナント切り替え失敗:', e)
-    // セッション切れでログアウトされた場合はログイン画面へ
     if (!auth.isAuthenticated) {
       router.push({ name: 'login' })
     }
   }
+}
+
+/** ⎋ボタン: 自テナントに戻り店舗選択画面へ */
+async function exitToSelectTenant() {
+  if (exiting.value) return
+  exiting.value = true
+  showMenu.value = false
+  try {
+    await auth.enterTenant(undefined)
+  } catch {
+    // エラーは無視して選択画面へ
+  } finally {
+    exiting.value = false
+  }
+  router.push({ name: 'select-tenant' })
 }
 
 /** メニュー外クリックで閉じる */
@@ -81,33 +108,58 @@ onUnmounted(() => document.removeEventListener('click', handleOutsideClick, true
 </script>
 
 <template>
-  <div ref="triggerRef" class="relative flex items-center">
-    <!-- 店舗名チップ -->
-    <button
-      v-if="canSwitch"
-      type="button"
-      class="flex items-center gap-1 px-2.5 py-1 rounded-xl
-             bg-brand-500/10 text-brand-600 dark:text-brand-400
-             border border-brand-500/20 text-xs font-medium
-             hover:bg-brand-500/20 active:scale-95 transition-all"
-      @click.stop="showMenu = !showMenu"
-    >
-      <span class="text-[10px]">🏪</span>
-      <span class="max-w-[96px] truncate">{{ currentTenantName }}</span>
-      <span class="text-[10px] opacity-60">{{ showMenu ? '▲' : '▾' }}</span>
-    </button>
+  <div ref="triggerRef" class="relative flex items-center gap-1">
+    <template v-if="showChip">
+      <!-- canSwitch: ドロップダウン付きチップ -->
+      <button
+        v-if="canSwitch"
+        type="button"
+        class="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-medium
+               border transition-all active:scale-95"
+        :class="isVisiting
+          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+          : 'bg-brand-500/10 text-brand-600 dark:text-brand-400 border-brand-500/20 hover:bg-brand-500/20'"
+        @click.stop="showMenu = !showMenu"
+      >
+        <span class="text-[10px]">🏪</span>
+        <span class="max-w-[96px] truncate">{{ currentTenantName }}</span>
+        <span
+          v-if="isVisiting"
+          class="text-[9px] font-bold px-1 rounded bg-amber-500/20 text-amber-700 dark:text-amber-400"
+        >訪問中</span>
+        <span class="text-[10px] opacity-60">{{ showMenu ? '▲' : '▾' }}</span>
+      </button>
 
-    <!-- 切り替え不可の場合はラベルのみ -->
-    <span
-      v-else-if="currentTenantName !== '（店舗未設定）'"
-      class="flex items-center gap-1 px-2.5 py-1 rounded-xl
-             bg-neutral-100 dark:bg-neutral-800
-             text-neutral-600 dark:text-neutral-400
-             border border-neutral-200 dark:border-neutral-700 text-xs font-medium"
-    >
-      <span class="text-[10px]">🏪</span>
-      <span class="max-w-[96px] truncate">{{ currentTenantName }}</span>
-    </span>
+      <!-- 静的ラベル（切り替え不可） -->
+      <span
+        v-else
+        class="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-medium border"
+        :class="isVisiting
+          ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
+          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700'"
+      >
+        <span class="text-[10px]">🏪</span>
+        <span class="max-w-[96px] truncate">{{ currentTenantName }}</span>
+        <span
+          v-if="isVisiting"
+          class="text-[9px] font-bold px-1 rounded bg-amber-500/20 text-amber-700 dark:text-amber-400"
+        >訪問中</span>
+      </span>
+
+      <!-- ⎋ ボタン: canSwitch ユーザーのみ表示 -->
+      <button
+        v-if="canSwitch"
+        type="button"
+        :disabled="exiting"
+        class="flex items-center justify-center w-7 h-7 rounded-lg
+               text-neutral-400 dark:text-neutral-500 text-sm
+               hover:text-neutral-700 dark:hover:text-neutral-200
+               hover:bg-black/[0.06] dark:hover:bg-white/[0.08]
+               transition-colors disabled:opacity-40"
+        title="店舗選択画面に戻る"
+        @click.stop="exitToSelectTenant"
+      >⎋</button>
+    </template>
 
     <!-- ドロップダウンメニュー -->
     <Transition

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import TenantSwitcher from '@/components/TenantSwitcher.vue'
+import VisitingBanner from '@/components/VisitingBanner.vue'
 import type { UserRole } from '@/types'
 
 const router = useRouter()
@@ -63,8 +64,9 @@ async function handleLogout() {
 
 <template>
   <div class="min-h-screen bg-app dark:bg-app-dark">
-    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark px-4 py-3">
-      <div class="max-w-lg mx-auto flex items-center justify-between gap-2">
+    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark">
+      <VisitingBanner />
+      <div class="max-w-lg mx-auto px-4 py-3 flex items-center justify-between gap-2">
         <!-- 左: ロゴ + タイトル + 日付 -->
         <div class="flex items-center gap-3">
           <img :src="iconSrc" alt="" class="w-10 h-10 rounded-2xl object-cover shrink-0" />

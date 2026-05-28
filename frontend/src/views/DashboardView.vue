@@ -11,6 +11,7 @@ import type { SkewerCategory } from '@/types'
 import CategoryTabs from '@/components/CategoryTabs.vue'
 import PrepCard from '@/components/PrepCard.vue'
 import TenantSwitcher from '@/components/TenantSwitcher.vue'
+import VisitingBanner from '@/components/VisitingBanner.vue'
 
 const skewersStore = useSkewersStore()
 const settingsStore = useSettingsStore()
@@ -349,6 +350,7 @@ onUnmounted(() => {
   <div class="min-h-screen bg-app dark:bg-app-dark pb-24">
     <!-- ヘッダー -->
     <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
+      <VisitingBanner />
       <!-- タイトル行 -->
       <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>

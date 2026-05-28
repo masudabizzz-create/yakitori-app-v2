@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useDailyLogStore } from '@/stores/dailyLog'
+import VisitingBanner from '@/components/VisitingBanner.vue'
 import {
   summarize,
   calcTrend,
@@ -52,6 +53,7 @@ onMounted(() => loadPeriod(7))
   <div class="min-h-screen bg-app dark:bg-app-dark pb-8">
     <!-- ヘッダー -->
     <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
+      <VisitingBanner />
       <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
         <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">分析・集計</h1>

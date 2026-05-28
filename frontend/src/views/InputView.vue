@@ -12,6 +12,7 @@ import { notifyDailyReport } from '@/composables/useLineNotify'
 import StepperInput from '@/components/StepperInput.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import TenantSwitcher from '@/components/TenantSwitcher.vue'
+import VisitingBanner from '@/components/VisitingBanner.vue'
 import type { DailyInputForm, SkewerCategory } from '@/types'
 
 const router = useRouter()
@@ -226,8 +227,9 @@ async function handleSubmit() {
 <template>
   <div class="min-h-screen bg-app dark:bg-app-dark pb-28">
     <!-- ヘッダー -->
-    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark px-4 py-4 sticky top-0 z-10">
-      <div class="max-w-lg mx-auto flex items-center gap-3 pr-12">
+    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
+      <VisitingBanner />
+      <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
         <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
         <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">営業後入力</h1>
         <div class="ml-auto"><TenantSwitcher /></div>
