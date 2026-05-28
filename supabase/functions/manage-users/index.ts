@@ -13,6 +13,7 @@
 //   reject_invitation   - 招待を拒否 / QRトークン無効化
 //   delete_user        - スタッフ削除
 //   force_signout      - 指定ユーザーのセッションを強制失効（⑥ セッション管理）
+//   transfer_tenant    - スタッフの所属店舗を変更（manager 以上のみ）
 //   create_tenant      - 新店舗作成
 //   update_tenant      - 店舗名更新
 //   delete_tenant      - 店舗削除
@@ -461,6 +462,102 @@ Deno.serve(async (req) => {
       const body = await res.text()
       return json(500, { error: `セッション失効失敗: ${body}` })
     }
+    return json(200, { success: true })
+  }
+
+  // ============================================================
+  // transfer_tenant — スタッフの所属店舗を変更（manager 以上のみ）
+  // ============================================================
+  if (action === 'transfer_tenant') {
+    // platform_admin / manager のみ（store_owner は不可）
+    if (callerRole !== 'platform_admin' && callerRole !== 'manager') {
+      return json(403, { error: 'マネージャー以上の権限が必要です' })
+    }
+
+    const { user_id, new_tenant_id } = payload
+    if (!user_id || !new_tenant_id) {
+      return json(400, { error: 'user_id と new_tenant_id は必須です' })
+    }
+    if (user_id === authData.user.id) {
+      return json(400, { error: '自分自身は異動できません' })
+    }
+
+    // 対象ユーザー情報取得
+    const { data: targetUser } = await supabaseAdmin
+      .from('users')
+      .select('name, tenant_id, role')
+      .eq('id', user_id as string)
+      .maybeSingle()
+    if (!targetUser) {
+      return json(404, { error: 'ユーザーが見つかりません' })
+    }
+
+    // ロールランク（フロントエンドの ROLE_RANK と同じ値）
+    const RANK: Record<string, number> = {
+      platform_admin: 5,
+      manager:        4,
+      store_owner:    3,
+      staff_both:     1,
+      staff_kitchen:  1,
+      staff_hall:     1,
+    }
+    const callerRank = RANK[callerRole] ?? 0
+    const targetRank = RANK[targetUser.role as string] ?? 0
+    if (targetRank >= callerRank) {
+      return json(403, { error: '自分と同格以上のスタッフは異動できません' })
+    }
+
+    // 異動先が現在の所属店舗と同じ
+    if (targetUser.tenant_id === new_tenant_id) {
+      return json(400, { error: '現在の所属店舗と同じです' })
+    }
+
+    // manager はアクセス可能テナントのみ異動先として指定可
+    if (callerRole === 'manager') {
+      const { data: perms } = await supabaseAdmin
+        .from('user_tenant_permissions')
+        .select('tenant_id')
+        .eq('user_id', authData.user.id)
+      const accessibleIds = new Set([
+        callerTenantId,
+        ...((perms ?? []) as { tenant_id: string }[]).map((p) => p.tenant_id),
+      ])
+      if (!accessibleIds.has(new_tenant_id as string)) {
+        return json(403, { error: 'このテナントへの異動権限がありません' })
+      }
+    }
+
+    // users.tenant_id を更新
+    const { error: updateErr } = await supabaseAdmin
+      .from('users')
+      .update({ tenant_id: new_tenant_id })
+      .eq('id', user_id as string)
+    if (updateErr) return json(500, { error: updateErr.message })
+
+    // セッション強制失効（異動したスタッフは再ログインが必要）
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    await fetch(`${supabaseUrl}/auth/v1/admin/users/${user_id as string}/logout`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+      },
+    })
+
+    // 監査ログ（異動元テナントに記録）
+    await insertAuditLogEdge(supabaseAdmin, {
+      tenantId: targetUser.tenant_id as string,
+      userId: authData.user.id,
+      actorName: callerName,
+      action: 'user.transfer',
+      targetType: 'user',
+      targetId: user_id as string,
+      targetName: targetUser.name as string,
+      beforeValue: { tenant_id: targetUser.tenant_id },
+      afterValue: { tenant_id: new_tenant_id },
+    })
+
     return json(200, { success: true })
   }
 

@@ -218,6 +218,22 @@ export const useUsersStore = defineStore('users', () => {
     return data as { token: string; expires_at: string }
   }
 
+  /**
+   * スタッフの所属店舗を変更する（manage-users Edge Function 経由）。
+   * 権限チェック・セッション失効・監査ログはサーバー側で処理する。
+   * 成功後、対象ユーザーを usersWithDetails から除去する（現テナントに所属しなくなるため）。
+   */
+  async function transferTenant(userId: string, newTenantId: string): Promise<void> {
+    const { data, error: err } = await supabase.functions.invoke('manage-users', {
+      body: { action: 'transfer_tenant', user_id: userId, new_tenant_id: newTenantId },
+    })
+    if (err) {
+      throw new Error(await extractFnError(err, data))
+    }
+    usersWithDetails.value = usersWithDetails.value.filter((u) => u.id !== userId)
+    users.value = users.value.filter((u) => u.id !== userId)
+  }
+
   /** QRトークンを無効化する */
   async function revokeQrInvitation(invitationId: string): Promise<void> {
     const { data, error: err } = await supabase.functions.invoke('manage-users', {
@@ -247,5 +263,6 @@ export const useUsersStore = defineStore('users', () => {
     deleteUser,
     createQrInvitation,
     revokeQrInvitation,
+    transferTenant,
   }
 })

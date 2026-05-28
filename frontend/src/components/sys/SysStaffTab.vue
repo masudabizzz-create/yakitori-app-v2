@@ -162,6 +162,68 @@ async function executeDelete() {
   }
 }
 
+// ─── 所属店舗変更 ──────────────────────────────────────────────
+
+/**
+ * 所属店舗変更が可能か。
+ * - 自分自身は不可
+ * - platform_admin / manager のみ（store_owner は不可）
+ * - 対象が自分より下位ランクのみ
+ * - アクセス可能な店舗が複数ある場合のみ意味がある
+ */
+function canTransfer(u: AppUserDetail): boolean {
+  if (u.id === auth.appUser?.id) return false
+  if (auth.role !== 'platform_admin' && auth.role !== 'manager') return false
+  if (myRank.value <= ROLE_RANK[u.role]) return false
+  if (auth.accessibleTenants.length <= 1) return false
+  return true
+}
+
+const transferTargetUser = ref<AppUserDetail | null>(null)
+const transferTenantId   = ref('')
+const transferring       = ref(false)
+const transferErr        = ref('')
+
+/** 異動先として選択可能なテナント（対象ユーザーの現在所属を除く） */
+const transferableDestinations = computed(() => {
+  if (!transferTargetUser.value) return auth.accessibleTenants
+  return auth.accessibleTenants.filter((t) => t.id !== transferTargetUser.value!.tenant_id)
+})
+
+/** 現在選択中の異動先テナント名 */
+const transferDestName = computed(() =>
+  auth.accessibleTenants.find((t) => t.id === transferTenantId.value)?.name ?? '',
+)
+
+function openTransferModal(u: AppUserDetail) {
+  transferTargetUser.value = u
+  transferTenantId.value   = transferableDestinations.value[0]?.id ?? ''
+  transferErr.value        = ''
+}
+
+function closeTransferModal() {
+  transferTargetUser.value = null
+  transferTenantId.value   = ''
+  transferErr.value        = ''
+}
+
+async function executeTransfer() {
+  if (!transferTargetUser.value || !transferTenantId.value) return
+  transferring.value = true
+  transferErr.value  = ''
+  try {
+    await usersStore.transferTenant(transferTargetUser.value.id, transferTenantId.value)
+    expandedIds.value.delete(transferTargetUser.value.id)
+    closeTransferModal()
+    saveMsg.value = '所属店舗を変更しました'
+    setTimeout(() => { saveMsg.value = '' }, 3000)
+  } catch (e) {
+    transferErr.value = e instanceof Error ? e.message : '変更に失敗しました'
+  } finally {
+    transferring.value = false
+  }
+}
+
 // ─── QRコード発行 ─────────────────────────────────────────────
 
 const qrRole       = ref<UserRole>('staff_both')
@@ -512,6 +574,16 @@ function fmtDateTime(iso: string | null | undefined): string {
                 ✏️ 編集
               </button>
 
+              <!-- 所属店舗変更ボタン（platform_admin / manager のみ・複数店舗あり時） -->
+              <button
+                v-if="canTransfer(u)"
+                type="button"
+                class="w-full py-2.5 rounded-xl border border-edge dark:border-edge-dark text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                @click="openTransferModal(u)"
+              >
+                🔄 所属店舗を変更
+              </button>
+
               <!-- 無効化 / 有効化ボタン（アンバー色） -->
               <button
                 type="button"
@@ -576,6 +648,70 @@ function fmtDateTime(iso: string | null | undefined): string {
             @click="executeDelete"
           >
             {{ deleting ? '削除中...' : '削除する' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── 所属店舗変更ダイアログ ─────────────────────────────── -->
+    <div
+      v-if="transferTargetUser"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4"
+      @click.self="closeTransferModal"
+    >
+      <div class="bg-card dark:bg-card-dark rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+        <h3 class="text-base font-semibold text-neutral-900 dark:text-neutral-50">所属店舗を変更</h3>
+
+        <!-- 異動先の選択 -->
+        <div>
+          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">
+            異動先の店舗
+          </label>
+          <select
+            v-model="transferTenantId"
+            class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
+          >
+            <option
+              v-for="t in transferableDestinations"
+              :key="t.id"
+              :value="t.id"
+            >
+              {{ t.name }}
+            </option>
+          </select>
+        </div>
+
+        <!-- 確認メッセージ -->
+        <div
+          v-if="transferTenantId"
+          class="text-sm text-neutral-600 dark:text-neutral-300 bg-neutral-50 dark:bg-white/[0.04] rounded-xl px-4 py-3 space-y-1.5"
+        >
+          <p>
+            <span class="font-semibold">{{ transferTargetUser?.name }}</span> を
+            <span class="font-semibold">{{ transferDestName }}</span> に異動します。
+          </p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400">
+            この操作により、該当スタッフは現在の店舗データにアクセスできなくなります。よいですか？
+          </p>
+        </div>
+
+        <p v-if="transferErr" class="text-sm text-red-500 dark:text-red-400">{{ transferErr }}</p>
+
+        <div class="flex gap-3">
+          <button
+            type="button"
+            class="flex-1 py-2.5 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-200 text-sm font-semibold rounded-xl transition-colors"
+            @click="closeTransferModal"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            :disabled="transferring || !transferTenantId"
+            class="flex-1 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white text-sm font-semibold rounded-xl transition-colors"
+            @click="executeTransfer"
+          >
+            {{ transferring ? '処理中...' : '異動する' }}
           </button>
         </div>
       </div>
