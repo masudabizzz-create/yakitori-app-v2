@@ -82,9 +82,14 @@ export const useAuthStore = defineStore('auth', () => {
         loading.value = false
       }
 
-      supabase.auth.onAuthStateChange(async (_event, session) => {
+      supabase.auth.onAuthStateChange(async (event, session) => {
         authUser.value = session?.user ?? null
-        if (authUser.value) {
+        // TOKEN_REFRESHED は refreshSession() や自動更新で頻繁に発火するが
+        // appUser やテナント状態は変わらないのでスキップする
+        if (
+          session?.user &&
+          (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED')
+        ) {
           try {
             await fetchAppUser()
             _restoreActiveTenant()
@@ -95,7 +100,7 @@ export const useAuthStore = defineStore('auth', () => {
             activeTenantId.value = undefined
             accessibleTenants.value = []
           }
-        } else {
+        } else if (!session) {
           appUser.value = null
           activeTenantId.value = undefined
           accessibleTenants.value = []
@@ -155,8 +160,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
-   * 店舗に入店する（JWT の app_metadata を更新し、RLS を切り替える）。
-   * - platform_admin / manager: Edge Function 経由で JWT 更新 → セッションリフレッシュ
+   * 店舗に入店する（active_tenant_sessions テーブルを更新し、RLS を切り替える）。
+   * - platform_admin / manager: Edge Function 経由で active_tenant_sessions を更新
+   *   → refreshSession() は不要（DB が即座に current_tenant_id() に反映される）
    * - その他のロール: localStorage へ保存のみ（自テナントのみ許可）
    * - undefined を渡すと自テナント（ホーム）に戻る
    */
@@ -164,27 +170,29 @@ export const useAuthStore = defineStore('auth', () => {
     const targetId = id ?? appUser.value?.tenant_id
     if (!targetId) return
 
-    // platform_admin / manager のみ JWT 更新が必要（他ロールは自テナントのみ）
     if (role.value === 'platform_admin' || role.value === 'manager') {
-      const { error } = await supabase.functions.invoke('enter-tenant', {
-        body: { tenant_id: targetId },
-      })
-      if (error) {
-        let detail = error.message
-        if (error.name === 'FunctionsHttpError') {
-          try {
-            const body = await (error.context as Response).json() as { error?: string }
-            detail = body.error ?? error.message
-          } catch { /* ignore */ }
+      if (id === undefined) {
+        // ホームに戻る: active_tenant_sessions から自分の行を削除
+        await supabase
+          .from('active_tenant_sessions')
+          .delete()
+          .eq('user_id', authUser.value!.id)
+      } else {
+        // 別テナントへ入店: Edge Function で active_tenant_sessions を更新
+        const { error } = await supabase.functions.invoke('enter-tenant', {
+          body: { tenant_id: id },
+        })
+        if (error) {
+          let detail = error.message
+          if (error.name === 'FunctionsHttpError') {
+            try {
+              const body = await (error.context as Response).json() as { error?: string }
+              detail = body.error ?? error.message
+            } catch { /* ignore */ }
+          }
+          throw new Error(`入店失敗: ${detail}`)
         }
-        throw new Error(`入店失敗: ${detail}`)
-      }
-      // JWT に active_tenant_id を反映させるためセッションをリフレッシュ
-      const { error: refreshError } = await supabase.auth.refreshSession()
-      if (refreshError) {
-        // リフレッシュ失敗（Invalid Refresh Token など）→ ログアウト
-        await logout()
-        throw new Error('セッションが切れました。再ログインしてください。')
+        // refreshSession() は不要 — DB テーブルが即座に有効になる
       }
     }
 

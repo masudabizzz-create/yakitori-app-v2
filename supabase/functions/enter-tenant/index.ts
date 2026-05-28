@@ -4,9 +4,9 @@
 // 役割:
 //   - フロントエンドから { tenant_id: string } を受け取る
 //   - DB の set_tenant_context() でアクセス権を検証する
-//   - service_role で auth.users.app_metadata.active_tenant_id を更新する
-//   - フロントエンドが supabase.auth.refreshSession() を呼ぶと
-//     新しい JWT に active_tenant_id が含まれ、RLS に反映される
+//   - service_role で active_tenant_sessions テーブルを更新する
+//   - DB が即座に current_tenant_id() の戻り値を反映するため
+//     フロントエンドは refreshSession() を呼ぶ必要がない
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0'
 
@@ -55,8 +55,9 @@ Deno.serve(async (req) => {
     },
   )
 
-  // 認証ユーザー確認
-  const { data: userData, error: userErr } = await supabase.auth.getUser()
+  // 認証ユーザー確認（Bearer トークンを明示的に渡す）
+  const token = authHeader.slice('Bearer '.length)
+  const { data: userData, error: userErr } = await supabase.auth.getUser(token)
   if (userErr || !userData.user) {
     return json(401, { error: 'Unauthorized' })
   }
@@ -70,19 +71,26 @@ Deno.serve(async (req) => {
     return json(403, { error: ctxErr.message })
   }
 
-  // service_role で app_metadata を更新する（auth.uid() は admin API 経由では使えないので直接指定）
+  // service_role で active_tenant_sessions を更新する
+  // （JWT の再発行は不要 — DB テーブルが即座に current_tenant_id() に反映される）
   const supabaseAdmin = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     { auth: { persistSession: false, autoRefreshToken: false } },
   )
 
-  const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(
-    userData.user.id,
-    { app_metadata: { active_tenant_id: tenantId } },
-  )
-  if (updateErr) {
-    return json(500, { error: `app_metadata 更新失敗: ${updateErr.message}` })
+  const { error: upsertErr } = await supabaseAdmin
+    .from('active_tenant_sessions')
+    .upsert(
+      {
+        user_id: userData.user.id,
+        tenant_id: tenantId,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    )
+  if (upsertErr) {
+    return json(500, { error: `active_tenant_sessions 更新失敗: ${upsertErr.message}` })
   }
 
   return json(200, { success: true })

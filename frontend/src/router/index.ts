@@ -147,14 +147,6 @@ router.beforeEach(async (to) => {
     to.name !== 'select-tenant'
   ) {
     const tenants = auth.accessibleTenants
-    // DEBUG: 原因特定用（確認後に削除）
-    console.log('[router] tenant check:', {
-      activeTenantId: auth.activeTenantId,
-      tenantsLength: tenants.length,
-      tenants: tenants.map(t => t.name),
-      role: auth.role,
-      appUser: auth.appUser?.name,
-    })
     if (!auth.activeTenantId && tenants.length > 1) {
       // 複数テナントにアクセス可能で未選択 → 選択画面へ
       return { name: 'select-tenant' }
