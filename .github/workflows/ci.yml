@@ -40,6 +40,8 @@ jobs:
         run: npm run test
 
       # build は内部で vue-tsc（型チェック）→ vite build を実行する
+      # 環境変数は GitHub Secrets（本番 Supabase）から注入する。
+      # .env.local の値は CI 上には存在しないためローカルテスト環境が混入しない。
       - name: Build
         run: npm run build
         env:

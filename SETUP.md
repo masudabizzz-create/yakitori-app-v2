@@ -1,5 +1,128 @@
 # 串在庫管理アプリ v2 — セットアップ手順
 
+---
+
+## テスト環境セットアップ（ローカル開発用）
+
+### 目標構成
+
+```
+本番環境
+  GitHub Pages（main ブランチ push で自動デプロイ）
+  Supabase 本番プロジェクト（mmquefvklrxjcmoxgvjb）
+  → GitHub Secrets の VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY を使用
+
+開発/テスト環境
+  ローカル（npm run dev）
+  Supabase テストプロジェクト（新規作成）
+  → .env.local（.gitignore 済み）に記載。本番データに影響しない。
+```
+
+### 手順
+
+#### Step 1: テスト Supabase プロジェクトを作成（手動）
+
+1. https://supabase.com/dashboard → **New project**
+2. 設定値：
+   - **Name**: `yakitori-app-test`
+   - **Region**: Northeast Asia (Tokyo)
+3. 作成後、**Project Settings → API** から以下をメモする：
+   - Project URL（`https://xxxxxxxxxxxxxxxx.supabase.co`）
+   - anon public key
+   - service_role key（シードスクリプト実行用）
+
+#### Step 2: マイグレーションを全件適用
+
+テストプロジェクトの **SQL Editor** で以下のファイルを **番号順** に実行：
+
+```
+001_initial_schema.sql
+002_rls_policies.sql
+003_seed_data.sql
+004_new_roles_and_invitations.sql
+005_qr_invitation.sql
+006_delivery_blackouts.sql
+007_prep_logs.sql
+008_new_roles.sql
+009_tenants_platform_admin_only.sql
+010_platform_admin_cross_tenant.sql
+011_user_tenant_permissions.sql
+012_fix_role_hierarchy.sql
+013_staff_details_function.sql
+014_security_hardening.sql
+015_tenant_isolation.sql
+016_fix_cross_tenant_rls.sql
+017_active_tenant_sessions.sql
+018_tenant_primary_color.sql
+```
+
+#### Step 3: platform_admin ユーザーを登録
+
+1. **Authentication → Users → Add user** でメール/パスワードを作成
+2. 作成されたユーザーの UUID をコピー
+3. SQL Editor で実行（`<UUID>` を置き換え）：
+
+```sql
+INSERT INTO public.users (id, tenant_id, name, role, is_active)
+VALUES (
+  '<UUID>',
+  '00000000-0000-0000-0000-000000000001',
+  '管理者',
+  'platform_admin',
+  true
+);
+```
+
+#### Step 4: .env.local をテスト環境に切り替え
+
+`frontend/.env.local` を以下の内容に書き換え（`.env.local.example` を参照）：
+
+```
+VITE_SUPABASE_URL=https://<テストプロジェクトのURL>
+VITE_SUPABASE_ANON_KEY=<テストプロジェクトのanon key>
+VITE_SUPABASE_SERVICE_ROLE_KEY=<テストプロジェクトのservice_role key>
+```
+
+> `.env.local` は `.gitignore` に登録済みのため、コミットされません。
+
+#### Step 5: テストデータ投入
+
+```bash
+cd scripts
+node seed-test-data.mjs
+```
+
+`../frontend/.env.local` を自動で読み込みます。過去 90 日分の営業ログ（曜日・季節変動付き）、串マスタ、設定が挿入されます。
+
+#### Step 6: GitHub Secrets の確認
+
+GitHub Actions のビルドは **Secrets** の本番環境変数を使うため、`.env.local` を変えてもデプロイには影響しません。
+確認場所: **GitHub リポジトリ → Settings → Secrets and variables → Actions**
+
+| Secret 名 | 期待値 |
+|---|---|
+| `VITE_SUPABASE_URL` | `https://mmquefvklrxjcmoxgvjb.supabase.co`（本番） |
+| `VITE_SUPABASE_ANON_KEY` | 本番の anon key |
+
+#### 確認チェックリスト
+
+- [ ] `npm run dev` → コンソールでテスト Supabase URL が表示される
+- [ ] テストユーザーでログインできる
+- [ ] 分析画面 → 過去 90 日のダミーデータが表示される
+- [ ] `git push origin main` → 本番 DB を向いたままデプロイされる
+
+#### Edge Functions（任意）
+
+スタッフ招待・テナント入店機能を使う場合のみ：
+
+```bash
+npx supabase link --project-ref <テストプロジェクトのref>
+npx supabase functions deploy manage-users
+npx supabase functions deploy enter-tenant
+```
+
+---
+
 GAS + Spreadsheet 構成から Vue 3 + Supabase 構成へ刷新したアプリです。
 本書は **Phase 1（基盤構築）** までの成果物に対するセットアップ手順です。
 
