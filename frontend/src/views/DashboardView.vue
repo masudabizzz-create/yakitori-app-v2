@@ -351,30 +351,28 @@ onUnmounted(() => {
     <!-- ヘッダー -->
     <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
       <VisitingBanner />
-      <!-- タイトル行 -->
-      <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
-        <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
-        <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">仕込みダッシュボード</h1>
-        <div class="ml-auto"><TenantSwitcher /></div>
+      <!-- タイトル行（pr-14 でテーマ切替ボタンとの重なりを回避） -->
+      <div class="max-w-lg mx-auto px-4 pt-3 pb-1 pr-14 flex items-center gap-2">
+        <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm shrink-0">‹ ホーム</router-link>
+        <h1 class="text-base font-semibold text-neutral-900 dark:text-neutral-50 truncate">仕込みダッシュボード</h1>
       </div>
-      <!-- 接続状態 + タイマー切替行 -->
-      <div class="max-w-lg mx-auto px-4 pb-2 flex items-center justify-between">
-        <!-- 接続状態インジケーター -->
-        <div class="flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass"></span>
-          <span class="text-xs" :class="statusTextClass">{{ statusLabel }}</span>
+      <!-- 操作行: 接続状態 + タイマー + 店舗切り替え -->
+      <div class="max-w-lg mx-auto px-4 pb-2.5 flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass"></span>
+        <span class="text-xs shrink-0" :class="statusTextClass">{{ statusLabel }}</span>
+        <div class="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            class="text-xs px-2 py-1.5 rounded-lg border transition-colors shrink-0"
+            :class="timerEnabled
+              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+              : 'text-neutral-400 dark:text-neutral-500 border-edge dark:border-edge-dark'"
+            @click="toggleTimer"
+          >
+            ⏱ {{ timerEnabled ? 'ON' : 'OFF' }}
+          </button>
+          <TenantSwitcher />
         </div>
-        <!-- タイマー切替 -->
-        <button
-          type="button"
-          class="text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
-          :class="timerEnabled
-            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-            : 'text-neutral-400 dark:text-neutral-500 border-edge dark:border-edge-dark'"
-          @click="toggleTimer"
-        >
-          ⏱ {{ timerEnabled ? 'タイマーON' : 'タイマーOFF' }}
-        </button>
       </div>
     </header>
 

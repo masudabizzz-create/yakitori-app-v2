@@ -92,69 +92,75 @@ onUnmounted(clearTick)
       completed ? 'opacity-40' : '',
     ]"
   >
-    <!-- 左: 串情報 -->
-    <div class="flex-1 min-w-0">
-      <p class="font-semibold text-neutral-900 dark:text-neutral-50 truncate">
+    <!-- 左: 串情報（flex-1 min-w-0 で残りスペースを使い切る） -->
+    <div class="flex-1 min-w-0 space-y-0.5">
+      <p class="font-semibold text-sm leading-snug text-neutral-900 dark:text-neutral-50 break-keep">
         {{ result.name }}
         <span v-if="completed" class="ml-1 text-xs text-green-500 font-normal">✓ 完了</span>
       </p>
-      <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
-        {{ result.category }} ・ 在庫 {{ stockText }}
+      <p class="text-xs text-neutral-400 dark:text-neutral-500 flex items-center gap-1 flex-wrap">
+        <span class="shrink-0">{{ result.category }}</span>
+        <span class="opacity-40">·</span>
+        <span class="shrink-0">在庫 {{ stockText }}</span>
       </p>
     </div>
 
-    <!-- 中: 仕込み量 -->
-    <div class="text-right shrink-0">
+    <!-- 右: 仕込み量 + アクションボタン（まとめて shrink-0 ブロック） -->
+    <div class="shrink-0 flex items-center gap-2">
+
+      <!-- 仕込み量（タイマー計測中は非表示でスペースを確保） -->
       <p
-        class="font-bold tabular-nums"
+        v-if="!timing"
+        class="font-bold tabular-nums text-right whitespace-nowrap"
         :class="needsPrep && !completed
           ? 'text-brand-500 text-xl'
           : 'text-neutral-300 dark:text-neutral-600 text-sm'"
       >
         {{ prepText }}
       </p>
-    </div>
 
-    <!-- 右: 完了ボタン（仕込み必要な未完了アイテムのみ） -->
-    <template v-if="needsPrep && !completed">
-      <!-- タイマー計測中: 経過時間ボタン + キャンセルボタン -->
-      <template v-if="timing">
+      <!-- 完了ボタン（仕込み必要な未完了アイテムのみ） -->
+      <template v-if="needsPrep && !completed">
+
+        <!-- タイマー計測中: 経過時間ボタン（大） + キャンセル（小） -->
+        <template v-if="timing">
+          <button
+            type="button"
+            class="w-16 h-11 rounded-xl bg-amber-500 text-white text-xs font-bold flex flex-col items-center justify-center gap-0.5 active:scale-95 transition-transform"
+            @click="onCompleteClick"
+          >
+            <span class="text-[10px] leading-none">完了</span>
+            <span class="leading-none tabular-nums">{{ elapsedLabel }}</span>
+          </button>
+          <button
+            type="button"
+            class="w-8 h-8 rounded-lg text-neutral-400 dark:text-neutral-500 text-sm flex items-center justify-center active:scale-90 transition-transform hover:bg-neutral-100 dark:hover:bg-neutral-700"
+            @click="onCancelTimer"
+          >
+            ✕
+          </button>
+        </template>
+
+        <!-- 通常: ✓ボタン（タイマーON時は1回目タップでタイマー開始） -->
         <button
+          v-else
           type="button"
-          class="shrink-0 w-16 h-12 rounded-xl bg-amber-500 text-white text-xs font-bold flex flex-col items-center justify-center gap-0.5 active:scale-95 transition-transform"
+          class="w-11 h-11 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 text-brand-500 text-2xl flex items-center justify-center active:scale-90 transition-transform"
           @click="onCompleteClick"
         >
-          <span class="text-[10px] leading-none">完了</span>
-          <span class="leading-none">{{ elapsedLabel }}</span>
-        </button>
-        <button
-          type="button"
-          class="shrink-0 w-11 h-11 rounded-lg text-neutral-400 dark:text-neutral-500 text-base flex items-center justify-center active:scale-90 transition-transform"
-          @click="onCancelTimer"
-        >
-          ✕
+          ✓
         </button>
       </template>
 
-      <!-- 通常: ✓ボタン（タイマーON時は1回目タップでタイマー開始） -->
+      <!-- 完了済み: 取り消しボタン -->
       <button
-        v-else
+        v-else-if="completed"
         type="button"
-        class="shrink-0 w-12 h-12 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 text-brand-500 text-2xl flex items-center justify-center active:scale-90 transition-transform"
-        @click="onCompleteClick"
+        class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-400 dark:text-neutral-500 border border-edge dark:border-edge-dark hover:text-red-400 hover:border-red-400/40 transition-colors"
+        @click="emit('undo')"
       >
-        ✓
+        取消
       </button>
-    </template>
-
-    <!-- 完了済み: 取り消しボタン -->
-    <button
-      v-else-if="completed"
-      type="button"
-      class="shrink-0 min-h-tap px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-400 dark:text-neutral-500 border border-edge dark:border-edge-dark hover:text-red-400 hover:border-red-400/40 transition-colors"
-      @click="emit('undo')"
-    >
-      取り消す
-    </button>
+    </div>
   </div>
 </template>
