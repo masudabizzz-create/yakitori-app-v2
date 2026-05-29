@@ -36,6 +36,20 @@ const draftRestored = ref(false)
 const lineWarning = ref('')
 const savedOk = ref(false)
 
+/**
+ * ドリンク比率の文字列バッファ（小数点入力対応）。
+ * form.drinkRatio（number）とは分離し、保存時に parseFloat() で変換する。
+ */
+const drinkRatioStr = ref<string>('')
+const drinkRatioErr = ref<string>('')
+
+/** drinkRatioStr → form.drinkRatio（数値）にリアルタイム同期 */
+watch(drinkRatioStr, (v) => {
+  const parsed = parseFloat(v)
+  form.drinkRatio = isNaN(parsed) || v.trim() === '' ? 0 : parsed
+  if (drinkRatioErr.value) drinkRatioErr.value = ''
+})
+
 // 入力フォーム
 const form = reactive<DailyInputForm>({
   staffName: '',
@@ -140,6 +154,9 @@ onMounted(async () => {
       draftRestored.value = true
     }
 
+    // ドリンク比率の文字列バッファを初期化（下書き復元後）
+    drinkRatioStr.value = form.drinkRatio > 0 ? String(form.drinkRatio) : ''
+
     // 串入力の初期化（下書きがあれば引き継ぐ）
     for (const s of inputSkewers.value) {
       form.skewerInputs[s.id] = draft?.skewerInputs?.[s.id] ?? {
@@ -158,8 +175,27 @@ onMounted(async () => {
   }
 })
 
+/** ドリンク比率のバリデーション。0以上・小数点2桁まで。 */
+function validateDrinkRatio(): boolean {
+  const raw = drinkRatioStr.value.trim()
+  if (raw === '') {
+    // 空欄は 0 として許可
+    form.drinkRatio = 0
+    return true
+  }
+  const parsed = parseFloat(raw)
+  if (isNaN(parsed) || parsed < 0 || !/^\d+(\.\d{1,2})?$/.test(raw)) {
+    drinkRatioErr.value = '0以上の数値を小数点2桁まで入力してください（例: 35.5）'
+    return false
+  }
+  form.drinkRatio = parsed
+  drinkRatioErr.value = ''
+  return true
+}
+
 async function handleSubmit() {
   showConfirm.value = false
+  if (!validateDrinkRatio()) return
   submitting.value = true
   submitError.value = ''
   lineWarning.value = ''
@@ -372,16 +408,22 @@ async function handleSubmit() {
                 class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
               />
             </div>
-            <div class="px-4 py-3 flex items-center justify-between">
-              <label class="text-sm text-neutral-700 dark:text-neutral-200">ドリンク比率（%）</label>
-              <input
-                v-model.number="form.drinkRatio"
-                type="number"
-                inputmode="numeric"
-                min="0"
-                max="100"
-                class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
-              />
+            <div class="px-4 py-3 space-y-1">
+              <div class="flex items-center justify-between">
+                <label class="text-sm text-neutral-700 dark:text-neutral-200">ドリンク比率（%）</label>
+                <input
+                  v-model="drinkRatioStr"
+                  type="text"
+                  inputmode="decimal"
+                  placeholder="0"
+                  autocomplete="off"
+                  class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+                  :class="drinkRatioErr ? 'border-red-400 dark:border-red-500 focus:border-red-400 focus:ring-red-400' : ''"
+                />
+              </div>
+              <p v-if="drinkRatioErr" class="text-xs text-red-500 dark:text-red-400 text-right">
+                {{ drinkRatioErr }}
+              </p>
             </div>
             <div class="px-4 py-3">
               <label class="text-sm text-neutral-700 dark:text-neutral-200 block mb-1.5">メモ（任意）</label>
