@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useThemeStore } from '@/stores/theme'
+import { useThemeStore, applyTenantColor } from '@/stores/theme'
 
 const auth = useAuthStore()
 // テーマストアの初期化（インスタンス化時に applyTheme が実行される）
@@ -10,6 +10,18 @@ const theme = useThemeStore()
 onMounted(() => {
   auth.initialize()
 })
+
+// テナント切り替え・テナントリスト読み込み時にテーマカラーを適用する
+watch(
+  [() => auth.effectiveTenantId, () => auth.accessibleTenants],
+  ([tenantId, tenants]) => {
+    const tenant = (tenants as { id: string; primary_color?: string }[]).find(
+      (t) => t.id === tenantId,
+    )
+    applyTenantColor(tenant?.primary_color)
+  },
+  { immediate: true },
+)
 </script>
 
 <template>

@@ -44,6 +44,7 @@ export type KombuAction = 'skewer_kombu' | 'none' | 'kombu' | 'skewer_direct'
 export interface Tenant {
   id: string
   name: string
+  primary_color: string
   created_at: string
 }
 

@@ -9,12 +9,12 @@ export default {
       },
       colors: {
         brand: {
-          50: '#fff3ed',
-          100: '#ffe0d2',
-          400: '#ff8a5e',
-          500: '#FF6B35',
-          600: '#ea5a28',
-          700: '#c2410c',
+          50:  'rgb(var(--color-brand-50) / <alpha-value>)',
+          100: 'rgb(var(--color-brand-100) / <alpha-value>)',
+          400: 'rgb(var(--color-brand-400) / <alpha-value>)',
+          500: 'rgb(var(--color-brand-500) / <alpha-value>)',
+          600: 'rgb(var(--color-brand-600) / <alpha-value>)',
+          700: 'rgb(var(--color-brand-700) / <alpha-value>)',
         },
         // ページ背景
         app: {

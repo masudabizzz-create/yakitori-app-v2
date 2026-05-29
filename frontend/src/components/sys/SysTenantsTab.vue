@@ -11,13 +11,22 @@ const tenantsStore = useTenantsStore()
 const auth = useAuthStore()
 const permStore = useTenantPermissionsStore()
 
-const editRows = ref<{ id: string; name: string }[]>([])
+const TENANT_PALETTE = [
+  '#FF6B35', '#E85D04', '#F59E0B', '#16A34A', '#0D9488',
+  '#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#0891B2',
+]
+function randomPaletteColor(): string {
+  return TENANT_PALETTE[Math.floor(Math.random() * TENANT_PALETTE.length)]
+}
+
+const editRows = ref<{ id: string; name: string; primary_color: string }[]>([])
 const saving = ref<string | null>(null)
 const saveMsg = ref('')
 const saveErr = ref('')
 
 // 新規作成
 const newTenantName = ref('')
+const newTenantColor = ref(randomPaletteColor())
 const creating = ref(false)
 const createMsg = ref('')
 const createErr = ref('')
@@ -43,10 +52,14 @@ onMounted(async () => {
 })
 
 function syncRows() {
-  editRows.value = tenantsStore.tenants.map((t) => ({ id: t.id, name: t.name }))
+  editRows.value = tenantsStore.tenants.map((t) => ({
+    id: t.id,
+    name: t.name,
+    primary_color: t.primary_color ?? '#FF6B35',
+  }))
 }
 
-async function saveTenant(row: { id: string; name: string }) {
+async function saveTenant(row: { id: string; name: string; primary_color: string }) {
   if (!row.name.trim()) {
     saveErr.value = '店舗名を入力してください'
     return
@@ -55,9 +68,9 @@ async function saveTenant(row: { id: string; name: string }) {
   saveMsg.value = ''
   saveErr.value = ''
   try {
-    await tenantsStore.updateTenant(row.id, row.name.trim())
+    await tenantsStore.updateTenant(row.id, row.name.trim(), row.primary_color)
     syncRows()
-    saveMsg.value = '店舗名を更新しました'
+    saveMsg.value = '保存しました'
   } catch (e) {
     saveErr.value = e instanceof Error ? e.message : '更新に失敗しました'
   } finally {
@@ -74,9 +87,13 @@ async function createTenant() {
   createMsg.value = ''
   createErr.value = ''
   try {
-    const newTenantId = await tenantsStore.createTenant(newTenantName.value.trim())
+    const newTenantId = await tenantsStore.createTenant(
+      newTenantName.value.trim(),
+      newTenantColor.value,
+    )
     syncRows()
     newTenantName.value = ''
+    newTenantColor.value = randomPaletteColor()
     setupPromptTenantId.value = newTenantId  // 初期設定ダイアログを表示
   } catch (e) {
     createErr.value = e instanceof Error ? e.message : '作成に失敗しました'
@@ -150,6 +167,18 @@ function hasPermission(userId: string, tenantId: string): boolean {
         <li v-for="row in editRows" :key="row.id" class="px-4 py-3 space-y-2">
           <!-- 店舗名 + 保存 + 削除 -->
           <div class="flex items-center gap-2">
+            <!-- カラースウォッチ -->
+            <div
+              class="shrink-0 w-7 h-7 rounded-lg border border-black/10 cursor-pointer relative overflow-hidden"
+              :style="{ backgroundColor: row.primary_color }"
+              :title="`テーマカラー: ${row.primary_color}`"
+            >
+              <input
+                v-model="row.primary_color"
+                type="color"
+                class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+            </div>
             <input
               v-model="row.name"
               type="text"
@@ -271,6 +300,22 @@ function hasPermission(userId: string, tenantId: string): boolean {
             placeholder="○○店"
             class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
           />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">テーマカラー</label>
+          <div class="flex items-center gap-2">
+            <div
+              class="w-9 h-9 rounded-xl border border-black/10 cursor-pointer relative overflow-hidden shrink-0"
+              :style="{ backgroundColor: newTenantColor }"
+            >
+              <input
+                v-model="newTenantColor"
+                type="color"
+                class="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+            </div>
+            <span class="text-sm font-mono text-neutral-600 dark:text-neutral-300">{{ newTenantColor }}</span>
+          </div>
         </div>
 
         <p v-if="createErr" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">

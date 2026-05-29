@@ -32,10 +32,10 @@ export const useTenantsStore = defineStore('tenants', () => {
   }
 
   /** 新店舗を作成する（manage-users Edge Function 経由）。作成した店舗の ID を返す。 */
-  async function createTenant(name: string): Promise<string> {
-    const { data, error: err } = await supabase.functions.invoke('manage-users', {
-      body: { action: 'create_tenant', name },
-    })
+  async function createTenant(name: string, primaryColor?: string): Promise<string> {
+    const body: Record<string, unknown> = { action: 'create_tenant', name }
+    if (primaryColor) body.primary_color = primaryColor
+    const { data, error: err } = await supabase.functions.invoke('manage-users', { body })
     if (err) {
       throw new Error(await extractFnError(err, data))
     }
@@ -44,11 +44,11 @@ export const useTenantsStore = defineStore('tenants', () => {
     return tenantId
   }
 
-  /** 店舗名を更新する（manage-users Edge Function 経由） */
-  async function updateTenant(tenantId: string, name: string): Promise<void> {
-    const { data, error: err } = await supabase.functions.invoke('manage-users', {
-      body: { action: 'update_tenant', tenant_id: tenantId, name },
-    })
+  /** 店舗名・テーマカラーを更新する（manage-users Edge Function 経由） */
+  async function updateTenant(tenantId: string, name: string, primaryColor?: string): Promise<void> {
+    const body: Record<string, unknown> = { action: 'update_tenant', tenant_id: tenantId, name }
+    if (primaryColor !== undefined) body.primary_color = primaryColor
+    const { data, error: err } = await supabase.functions.invoke('manage-users', { body })
     if (err) {
       throw new Error(await extractFnError(err, data))
     }

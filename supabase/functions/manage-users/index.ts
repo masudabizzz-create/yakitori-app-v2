@@ -566,12 +566,21 @@ Deno.serve(async (req) => {
   // ============================================================
   if (action === 'create_tenant') {
     if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
-    const { name } = payload
+    const { name, primary_color } = payload
     if (!name) return json(400, { error: 'name は必須です' })
+
+    // primary_color 未指定時はパレットからランダムに選択
+    const TENANT_PALETTE = [
+      '#FF6B35', '#E85D04', '#F59E0B', '#16A34A', '#0D9488',
+      '#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#0891B2',
+    ]
+    const resolvedColor = typeof primary_color === 'string' && /^#[0-9a-f]{6}$/i.test(primary_color)
+      ? primary_color
+      : TENANT_PALETTE[Math.floor(Math.random() * TENANT_PALETTE.length)]
 
     const { data: tenant, error: tenantErr } = await supabaseAdmin
       .from('tenants')
-      .insert({ name })
+      .insert({ name, primary_color: resolvedColor })
       .select()
       .single()
     if (tenantErr) return json(500, { error: tenantErr.message })
@@ -594,18 +603,23 @@ Deno.serve(async (req) => {
   }
 
   // ============================================================
-  // update_tenant — 店舗名を更新
+  // update_tenant — 店舗名・テーマカラーを更新
   // ============================================================
   if (action === 'update_tenant') {
     if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
-    const { tenant_id, name } = payload
+    const { tenant_id, name, primary_color } = payload
     if (!tenant_id || !name) {
       return json(400, { error: 'tenant_id と name は必須です' })
     }
 
+    const updates: Record<string, unknown> = { name }
+    if (typeof primary_color === 'string' && /^#[0-9a-f]{6}$/i.test(primary_color)) {
+      updates.primary_color = primary_color
+    }
+
     const { error } = await supabaseAdmin
       .from('tenants')
-      .update({ name })
+      .update(updates)
       .eq('id', tenant_id)
     if (error) return json(500, { error: error.message })
     return json(200, { success: true })

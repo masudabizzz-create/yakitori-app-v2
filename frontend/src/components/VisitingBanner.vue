@@ -24,9 +24,9 @@ const homeName = computed(() =>
 <template>
   <div
     v-if="isVisiting"
-    class="bg-amber-500/10 border-b border-amber-500/20 px-4 py-1.5"
+    class="bg-brand-500/10 border-b border-brand-500/30 px-4 py-1.5"
   >
-    <div class="max-w-lg mx-auto flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+    <div class="max-w-lg mx-auto flex items-center gap-1.5 text-xs text-brand-700 dark:text-brand-400">
       <span>👁</span>
       <span class="font-semibold">{{ visitingName }}</span>
       <span>を訪問中</span>

@@ -4,6 +4,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── テナントテーマカラー（CSS 変数） ─── */
+:root {
+  /* デフォルト: #FF6B35 のシェード */
+  --color-brand-50:  255 243 237;
+  --color-brand-100: 255 224 210;
+  --color-brand-400: 255 138 94;
+  --color-brand-500: 255 107 53;
+  --color-brand-600: 234 90 40;
+  --color-brand-700: 194 65 12;
+}
+
+/* 店舗切り替え時のカラートランジション（0.3s） */
+.brand-transitioning,
+.brand-transitioning * {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, fill 0.3s ease !important;
+}
+
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
