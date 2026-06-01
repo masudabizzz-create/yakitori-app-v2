@@ -130,6 +130,8 @@ export interface Settings {
   course_standard_skewers: number
   course_premium_skewers: number
   line_token: string
+  /** 月次売上目標（円）。0 = 未設定 */
+  monthly_sales_target: number
   updated_at: string
 }
 

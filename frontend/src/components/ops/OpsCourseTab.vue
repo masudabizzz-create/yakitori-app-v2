@@ -10,6 +10,7 @@ const premiumPrice = ref(5800)
 const casualSkewers = ref(10)
 const standardSkewers = ref(15)
 const premiumSkewers = ref(20)
+const monthlySalesTarget = ref(0)
 
 const saving = ref(false)
 const message = ref('')
@@ -24,6 +25,7 @@ function syncFromStore() {
   casualSkewers.value = s.course_casual_skewers
   standardSkewers.value = s.course_standard_skewers
   premiumSkewers.value = s.course_premium_skewers
+  monthlySalesTarget.value = s.monthly_sales_target ?? 0
 }
 
 onMounted(syncFromStore)
@@ -40,6 +42,7 @@ async function save() {
       course_casual_skewers: casualSkewers.value,
       course_standard_skewers: standardSkewers.value,
       course_premium_skewers: premiumSkewers.value,
+      monthly_sales_target: monthlySalesTarget.value,
     })
     syncFromStore()
     message.value = '設定を保存しました'
@@ -117,6 +120,22 @@ async function save() {
             class="w-28 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
           />
         </div>
+      </div>
+    </section>
+
+    <!-- 月次目標 -->
+    <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
+      <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">月次売上目標</h2>
+      <div class="px-4 py-3 flex items-center justify-between gap-3">
+        <label class="text-sm text-neutral-700 dark:text-neutral-200">月次目標（円）<span class="text-xs text-neutral-400 ml-1">0=未設定</span></label>
+        <input
+          v-model.number="monthlySalesTarget"
+          type="number"
+          inputmode="numeric"
+          min="0"
+          step="10000"
+          class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+        />
       </div>
     </section>
 

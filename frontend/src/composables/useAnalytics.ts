@@ -113,3 +113,197 @@ export function courseShares(summary: AnalyticsSummary): CourseShare[] {
     mk('プレミアム', summary.coursePremium),
   ]
 }
+
+// ============================================================
+// 以下は既存関数に追加した新機能（既存は一切変更なし）
+// ============================================================
+
+// ─── 前期比較 ────────────────────────────────────────────────────
+
+export interface CompareItem {
+  current: number
+  prev: number
+  /** 増減率 % (正=増加, 負=減少) */
+  pct: number
+  direction: '↑' | '↓' | '→'
+}
+
+export interface PeriodComparison {
+  sales: CompareItem
+  customers: CompareItem
+  unitPrice: CompareItem
+}
+
+function mkCompareItem(curr: number, prev: number): CompareItem {
+  if (prev === 0) return { current: curr, prev, pct: 0, direction: '→' }
+  const pct = Math.round(((curr - prev) / prev) * 100)
+  const direction: '↑' | '↓' | '→' = pct > 3 ? '↑' : pct < -3 ? '↓' : '→'
+  return { current: curr, prev, pct, direction }
+}
+
+/**
+ * 今期ログ / 前期ログ を比較して増減率を返す。
+ * logs は「新しい順」を前提とするが、ここでは集計のみのため順不同でも可。
+ */
+export function calcPeriodComparison(
+  currentLogs: DailyLog[],
+  prevLogs: DailyLog[],
+): PeriodComparison {
+  const totalSales = (ls: DailyLog[]) => ls.reduce((a, r) => a + r.total_sales, 0)
+  const totalCustomers = (ls: DailyLog[]) =>
+    ls.reduce((a, r) => a + r.course_casual + r.course_standard + r.course_premium, 0)
+
+  const currSales = totalSales(currentLogs)
+  const prevSales = totalSales(prevLogs)
+  const currCust = totalCustomers(currentLogs)
+  const prevCust = totalCustomers(prevLogs)
+  const currUnit = currCust > 0 ? Math.round(currSales / currCust) : 0
+  const prevUnit = prevCust > 0 ? Math.round(prevSales / prevCust) : 0
+
+  return {
+    sales: mkCompareItem(currSales, prevSales),
+    customers: mkCompareItem(currCust, prevCust),
+    unitPrice: mkCompareItem(currUnit, prevUnit),
+  }
+}
+
+// ─── 客数・客単価 ─────────────────────────────────────────────────
+
+export interface CustomerMetrics {
+  /** 期間合計グループ数（course 合計） */
+  totalCustomers: number
+  /** 1営業日あたり平均グループ数 */
+  avgCustomersPerDay: number
+  /** 売上 ÷ グループ数（グループ単価） */
+  avgUnitPrice: number
+}
+
+export function calcCustomerMetrics(logs: DailyLog[]): CustomerMetrics {
+  const totalCustomers = logs.reduce(
+    (a, r) => a + r.course_casual + r.course_standard + r.course_premium,
+    0,
+  )
+  const avgCustomersPerDay = logs.length > 0 ? Math.round(totalCustomers / logs.length) : 0
+  const totalSales = logs.reduce((a, r) => a + r.total_sales, 0)
+  const avgUnitPrice = totalCustomers > 0 ? Math.round(totalSales / totalCustomers) : 0
+  return { totalCustomers, avgCustomersPerDay, avgUnitPrice }
+}
+
+// ─── 異常値検出 ───────────────────────────────────────────────────
+
+export interface AnomalyRecord {
+  date: string
+  dayOfWeek: string
+  actualSales: number
+  /** その曜日の平均売上 */
+  expectedSales: number
+  /** 標準偏差の倍数（絶対値） */
+  sigmas: number
+  direction: '↑' | '↓'
+}
+
+/**
+ * 各曜日の標準偏差を基準に、平均から threshold σ 以上外れた日を返す。
+ * std が小さい（データ不足や変動なし）場合はスキップ。
+ * 結果は |σ| 降順・最大5件。
+ */
+export function detectAnomalies(logs: DailyLog[], threshold = 1.5): AnomalyRecord[] {
+  // 曜日ごとの売上リスト
+  const byDow: Record<string, number[]> = {}
+  for (const r of logs) {
+    ;(byDow[r.day_of_week] ??= []).push(r.total_sales)
+  }
+
+  // 曜日ごとの平均・標準偏差
+  const stats: Record<string, { mean: number; std: number }> = {}
+  for (const [dow, sales] of Object.entries(byDow)) {
+    if (sales.length < 3) continue // データ不足はスキップ
+    const mean = sales.reduce((a, b) => a + b, 0) / sales.length
+    const variance = sales.reduce((a, b) => a + (b - mean) ** 2, 0) / sales.length
+    const std = Math.sqrt(variance)
+    if (std < 5000) continue // 変動が小さすぎる場合もスキップ
+    stats[dow] = { mean, std }
+  }
+
+  const anomalies: AnomalyRecord[] = []
+  for (const r of logs) {
+    const s = stats[r.day_of_week]
+    if (!s) continue
+    const sigmasRaw = (r.total_sales - s.mean) / s.std
+    if (Math.abs(sigmasRaw) < threshold) continue
+    anomalies.push({
+      date: r.log_date,
+      dayOfWeek: r.day_of_week,
+      actualSales: r.total_sales,
+      expectedSales: Math.round(s.mean),
+      sigmas: Math.round(Math.abs(sigmasRaw) * 10) / 10,
+      direction: sigmasRaw > 0 ? '↑' : '↓',
+    })
+  }
+
+  return anomalies.sort((a, b) => b.sigmas - a.sigmas).slice(0, 5)
+}
+
+// ─── AI搭載準備 ───────────────────────────────────────────────────
+
+export interface AnalyticsSummaryJson {
+  generated_at: string
+  period: { days: number; from: string; to: string }
+  sales: { total: number; daily_avg: number; vs_prev_period_pct: number | null }
+  customers: { total: number; avg_per_day: number; avg_unit_price: number }
+  courses: { casual: number; standard: number; premium: number }
+  drink: { avg_ratio: number }
+  weekday_pattern: { dow: string; avg_sales: number }[]
+  anomalies: { date: string; direction: string; actual: number; expected: number; sigmas: number }[]
+}
+
+/**
+ * 全集計結果を構造化 JSON に変換する。
+ * Claude API に渡して「今週の傾向を要約して」「来週の発注アドバイス」などに使用できる。
+ * （現時点では AI 呼び出しは実装しない — データ整形のみ）
+ */
+export function getAnalyticsSummary(
+  logs: DailyLog[],
+  prevLogs: DailyLog[],
+): AnalyticsSummaryJson {
+  const sum = summarize(logs)
+  const cm = calcCustomerMetrics(logs)
+  const comp = prevLogs.length > 0 ? calcPeriodComparison(logs, prevLogs) : null
+  const wp = weekdayAvgSales(logs)
+  const anom = detectAnomalies(logs)
+
+  const dates = [...logs.map((l) => l.log_date)].sort()
+
+  return {
+    generated_at: new Date().toISOString(),
+    period: {
+      days: logs.length,
+      from: dates[0] ?? '',
+      to: dates[dates.length - 1] ?? '',
+    },
+    sales: {
+      total: sum.totalSales,
+      daily_avg: sum.avgSales,
+      vs_prev_period_pct: comp?.sales.pct ?? null,
+    },
+    customers: {
+      total: cm.totalCustomers,
+      avg_per_day: cm.avgCustomersPerDay,
+      avg_unit_price: cm.avgUnitPrice,
+    },
+    courses: {
+      casual: sum.courseCasual,
+      standard: sum.courseStandard,
+      premium: sum.coursePremium,
+    },
+    drink: { avg_ratio: sum.avgDrink },
+    weekday_pattern: wp.map((w) => ({ dow: w.dow, avg_sales: w.avg })),
+    anomalies: anom.map((a) => ({
+      date: a.date,
+      direction: a.direction,
+      actual: a.actualSales,
+      expected: a.expectedSales,
+      sigmas: a.sigmas,
+    })),
+  }
+}

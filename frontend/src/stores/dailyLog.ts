@@ -108,6 +108,19 @@ export function buildSubmitPayload(form: DailyInputForm, ctx: SubmitContext): Da
 /**
  * 日次ログストア
  */
+// ── 串在庫サマリー型 ──────────────────────────────────────────────
+export interface SkewerStockSummary {
+  skewerId: string
+  name: string
+  category: string
+  /** 期間中の平均在庫本数（P単位） */
+  avgStock: number
+  /** 在庫が 0 だった日数 */
+  zeroCount: number
+  /** 記録日数 */
+  recordCount: number
+}
+
 export const useDailyLogStore = defineStore('dailyLog', () => {
   const submitting = ref(false)
   const latestLog = ref<DailyLog | null>(null)
@@ -115,6 +128,8 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
   const loadingLatest = ref(false)
   const logs = ref<DailyLog[]>([])
   const loadingLogs = ref(false)
+  const skewerStocks = ref<SkewerStockSummary[]>([])
+  const loadingStocks = ref(false)
 
   /**
    * 営業後入力を Supabase に保存する。
@@ -204,6 +219,60 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
     }
   }
 
+  /**
+   * 指定した daily_log ID 群の在庫スナップショットを取得し、串ごとに集計する。
+   * 分析画面の「串ランキング」で使用。副産物は除外する。
+   */
+  async function fetchSkewerStocks(logIds: string[]): Promise<void> {
+    if (logIds.length === 0) {
+      skewerStocks.value = []
+      return
+    }
+    loadingStocks.value = true
+    try {
+      const { data, error } = await supabase
+        .from('daily_log_stocks')
+        .select('stock, skewer_id, skewers(name, category)')
+        .in('daily_log_id', logIds)
+      if (error) throw new Error(error.message)
+
+      // skewer_id ごとに集計
+      const agg: Record<
+        string,
+        { name: string; category: string; stocks: number[] }
+      > = {}
+      for (const row of (data ?? []) as unknown as Array<{
+        stock: number
+        skewer_id: string
+        skewers: { name: string; category: string } | null
+      }>) {
+        const id = row.skewer_id
+        if (!agg[id]) {
+          agg[id] = {
+            name: row.skewers?.name ?? '',
+            category: row.skewers?.category ?? '',
+            stocks: [],
+          }
+        }
+        agg[id].stocks.push(row.stock)
+      }
+
+      skewerStocks.value = Object.entries(agg)
+        .map(([skewerId, { name, category, stocks }]) => ({
+          skewerId,
+          name,
+          category,
+          avgStock: Math.round(stocks.reduce((a, b) => a + b, 0) / stocks.length),
+          zeroCount: stocks.filter((s) => s === 0).length,
+          recordCount: stocks.length,
+        }))
+        .filter((s) => s.name && s.category !== '副産物')
+        .sort((a, b) => b.zeroCount - a.zeroCount || a.avgStock - b.avgStock)
+    } finally {
+      loadingStocks.value = false
+    }
+  }
+
   // ---------------- localStorage 下書き（オフライン退避） ----------------
 
   function saveDraft(form: DailyInputForm): void {
@@ -235,9 +304,12 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
     loadingLatest,
     logs,
     loadingLogs,
+    skewerStocks,
+    loadingStocks,
     submitDailyReport,
     fetchLatest,
     fetchRecentLogs,
+    fetchSkewerStocks,
     saveDraft,
     loadDraft,
     clearDraft,
