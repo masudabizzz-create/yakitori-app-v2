@@ -44,10 +44,19 @@ export const useTenantsStore = defineStore('tenants', () => {
     return tenantId
   }
 
-  /** 店舗名・テーマカラーを更新する（manage-users Edge Function 経由） */
-  async function updateTenant(tenantId: string, name: string, primaryColor?: string): Promise<void> {
+  /** 店舗名・テーマカラー・緯度経度を更新する（manage-users Edge Function 経由） */
+  async function updateTenant(
+    tenantId: string,
+    name: string,
+    primaryColor?: string,
+    coords?: { latitude: number | null; longitude: number | null },
+  ): Promise<void> {
     const body: Record<string, unknown> = { action: 'update_tenant', tenant_id: tenantId, name }
     if (primaryColor !== undefined) body.primary_color = primaryColor
+    if (coords !== undefined) {
+      body.latitude = coords.latitude
+      body.longitude = coords.longitude
+    }
     const { data, error: err } = await supabase.functions.invoke('manage-users', { body })
     if (err) {
       throw new Error(await extractFnError(err, data))

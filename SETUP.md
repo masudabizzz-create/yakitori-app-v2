@@ -56,6 +56,7 @@
 018_tenant_primary_color.sql
 019_monthly_sales_target.sql
 020_platform_admin_home_tenant.sql
+021_groups_guests_weather.sql
 ```
 
 #### Step 3: platform_admin ユーザーを登録
@@ -414,11 +415,27 @@ supabase link --project-ref mmquefvklrxjcmoxgvjb
 ```bash
 supabase functions deploy send-line
 supabase functions deploy enter-tenant
+supabase functions deploy fetch-weather
 ```
 
 成功すると以下の URL で公開されます：
 - `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/send-line`
 - `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/enter-tenant`
+- `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/fetch-weather`
+
+#### fetch-weather の役割
+
+天気データ取得 Edge Function（`supabase/functions/fetch-weather/`）。
+
+| アクション | 説明 |
+|---|---|
+| `historical` | 指定日の過去天気を [Open-Meteo Archive API](https://archive-api.open-meteo.com) で取得し `daily_logs` を UPDATE |
+| `today` | 当日の現在天気を [Open-Meteo Forecast API](https://api.open-meteo.com) で取得して返す（DB 更新なし） |
+
+- 認証: 両アクションとも Bearer JWT 必須
+- `historical` は営業後入力の保存成功後に非同期（await なし）で自動呼び出し
+- `today` はホーム画面の `onMounted` で呼び出し → 天気アイコン表示に使用
+- テナントの座標は `tenants.latitude / longitude`。未設定時は渋谷座標（35.6762, 139.6503）にフォールバック
 
 #### enter-tenant の役割
 

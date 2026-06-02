@@ -4,6 +4,7 @@ import {
   calcTrend,
   weekdayAvgSales,
   courseShares,
+  calcRealCustomerMetrics,
 } from '@/composables/useAnalytics'
 import type { DailyLog } from '@/types'
 
@@ -169,5 +170,76 @@ describe('courseShares', () => {
   it('コース組数が0なら構成比0', () => {
     const shares = courseShares(summarize([]))
     expect(shares.every((s) => s.rate === 0)).toBe(true)
+  })
+})
+
+// ============================================================
+// calcRealCustomerMetrics
+// ============================================================
+
+describe('calcRealCustomerMetrics', () => {
+  it('groups_count / guests_count が入力されている日だけ集計する', () => {
+    const logs = [
+      makeLog({ total_sales: 120000, groups_count: 10, guests_count: 25 }),
+      makeLog({ total_sales:  80000, groups_count:  8, guests_count: 20 }),
+      makeLog({ total_sales:  60000, groups_count: null, guests_count: null }), // 旧データ: 除外
+    ]
+    const m = calcRealCustomerMetrics(logs)
+    expect(m.sampleCount).toBe(2)
+    expect(m.totalGroups).toBe(18)
+    expect(m.totalGuests).toBe(45)
+    // avgGroupsPerDay = round(18/2) = 9
+    expect(m.avgGroupsPerDay).toBe(9)
+    // avgGuestsPerDay = round(45/2) = 23 (round(22.5)=23)
+    expect(m.avgGuestsPerDay).toBe(23)
+    // avgSpendPerGroup = round(200000/18) = 11111
+    expect(m.avgSpendPerGroup).toBe(Math.round(200000 / 18))
+    // avgSpendPerGuest = round(200000/45) = 4444
+    expect(m.avgSpendPerGuest).toBe(Math.round(200000 / 45))
+  })
+
+  it('groups_count のみ null のログは除外する', () => {
+    const logs = [
+      makeLog({ total_sales: 100000, groups_count: 10, guests_count: 20 }),
+      makeLog({ total_sales:  50000, groups_count: null, guests_count: 15 }), // groups_count null → 除外
+    ]
+    const m = calcRealCustomerMetrics(logs)
+    expect(m.sampleCount).toBe(1)
+    expect(m.totalGroups).toBe(10)
+    expect(m.totalGuests).toBe(20)
+  })
+
+  it('0 組・0 客は有効なデータとして集計する', () => {
+    const logs = [
+      makeLog({ total_sales: 0, groups_count: 0, guests_count: 0 }),
+    ]
+    const m = calcRealCustomerMetrics(logs)
+    expect(m.sampleCount).toBe(1)
+    expect(m.totalGroups).toBe(0)
+    expect(m.totalGuests).toBe(0)
+    // 0除算: avgSpendPerGroup / avgSpendPerGuest は 0
+    expect(m.avgSpendPerGroup).toBe(0)
+    expect(m.avgSpendPerGuest).toBe(0)
+  })
+
+  it('全ログが旧データ（null）なら sampleCount=0・全値0', () => {
+    const logs = [
+      makeLog({ groups_count: null, guests_count: null }),
+      makeLog({ groups_count: undefined, guests_count: undefined }),
+    ]
+    const m = calcRealCustomerMetrics(logs)
+    expect(m.sampleCount).toBe(0)
+    expect(m.totalGroups).toBe(0)
+    expect(m.totalGuests).toBe(0)
+    expect(m.avgGroupsPerDay).toBe(0)
+    expect(m.avgGuestsPerDay).toBe(0)
+    expect(m.avgSpendPerGroup).toBe(0)
+    expect(m.avgSpendPerGuest).toBe(0)
+  })
+
+  it('空配列なら全値0', () => {
+    const m = calcRealCustomerMetrics([])
+    expect(m.sampleCount).toBe(0)
+    expect(m.avgSpendPerGuest).toBe(0)
   })
 })

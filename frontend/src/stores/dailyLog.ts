@@ -39,6 +39,9 @@ export interface DailyLogRow {
   drink_sales: number
   drink_ratio: number
   memo: string
+  // ── 実入力（optional: 未入力時は upsert ペイロードに含めず既存値を保護）──
+  groups_count?: number | null
+  guests_count?: number | null
 }
 
 export interface SubmitContext {
@@ -89,6 +92,11 @@ export function buildSubmitPayload(form: DailyInputForm, ctx: SubmitContext): Da
     drink_ratio: form.drinkRatio,
     memo: form.memo,
   }
+
+  // 組数・客数が入力されている場合のみペイロードに含める。
+  // null / undefined の場合は upsert に含めず既存値を保護する。
+  if (form.groupsCount != null) logRow.groups_count = form.groupsCount
+  if (form.guestsCount != null) logRow.guests_count = form.guestsCount
 
   // 副産物は在庫保存対象外（current-spec §2: daily_log は副産物を除く）
   const stockRows: SubmitStockRow[] = ctx.skewers

@@ -46,6 +46,10 @@ export interface Tenant {
   name: string
   primary_color: string
   created_at: string
+  /** 緯度（Open-Meteo 天気取得用）。null = 未設定 */
+  latitude?: number | null
+  /** 経度（Open-Meteo 天気取得用）。null = 未設定 */
+  longitude?: number | null
 }
 
 export interface AppUser {
@@ -109,6 +113,19 @@ export interface DailyLog {
   drink_ratio: number
   memo: string
   created_at: string
+  // ── 実入力（migration 021 / nullable 旧データとの互換のため optional）──
+  /** 実際の総組数（コース＋アラカルト含む）。null = 未入力 */
+  groups_count?: number | null
+  /** 実際の総客数（人数）。null = 未入力 */
+  guests_count?: number | null
+  // ── 外的要因（天気・祝日） ────────────────────────────────────────
+  weather_code?: number | null
+  temp_max?: number | null
+  temp_avg?: number | null
+  precip_mm?: number | null
+  humidity_avg?: number | null
+  is_holiday?: boolean
+  is_pre_holiday?: boolean
 }
 
 export interface DailyLogStock {
@@ -219,4 +236,9 @@ export interface DailyInputForm {
   memo: string
   /** skewerId -> 入力状態 */
   skewerInputs: Record<string, SkewerInput>
+  // ── 実入力（migration 021 追加 / optional で既存テストとの互換を維持）──
+  /** 実際の総組数（null = 未入力・未対応フォーム） */
+  groupsCount?: number | null
+  /** 実際の総客数（null = 未入力・未対応フォーム） */
+  guestsCount?: number | null
 }

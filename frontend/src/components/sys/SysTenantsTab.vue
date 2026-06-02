@@ -19,7 +19,15 @@ function randomPaletteColor(): string {
   return TENANT_PALETTE[Math.floor(Math.random() * TENANT_PALETTE.length)]
 }
 
-const editRows = ref<{ id: string; name: string; primary_color: string }[]>([])
+const editRows = ref<{
+  id: string
+  name: string
+  primary_color: string
+  /** 緯度文字列（空文字 = 未設定） */
+  latStr: string
+  /** 経度文字列（空文字 = 未設定） */
+  lonStr: string
+}[]>([])
 const saving = ref<string | null>(null)
 const saveMsg = ref('')
 const saveErr = ref('')
@@ -56,10 +64,18 @@ function syncRows() {
     id: t.id,
     name: t.name,
     primary_color: t.primary_color ?? '#FF6B35',
+    latStr: t.latitude != null ? String(t.latitude) : '',
+    lonStr: t.longitude != null ? String(t.longitude) : '',
   }))
 }
 
-async function saveTenant(row: { id: string; name: string; primary_color: string }) {
+async function saveTenant(row: {
+  id: string
+  name: string
+  primary_color: string
+  latStr: string
+  lonStr: string
+}) {
   if (!row.name.trim()) {
     saveErr.value = '店舗名を入力してください'
     return
@@ -68,7 +84,13 @@ async function saveTenant(row: { id: string; name: string; primary_color: string
   saveMsg.value = ''
   saveErr.value = ''
   try {
-    await tenantsStore.updateTenant(row.id, row.name.trim(), row.primary_color)
+    // 緯度経度: 空文字 = null（未設定）、有効な数値のみ保存
+    const lat = row.latStr.trim() !== '' ? parseFloat(row.latStr) : null
+    const lon = row.lonStr.trim() !== '' ? parseFloat(row.lonStr) : null
+    await tenantsStore.updateTenant(row.id, row.name.trim(), row.primary_color, {
+      latitude: lat != null && !isNaN(lat) ? lat : null,
+      longitude: lon != null && !isNaN(lon) ? lon : null,
+    })
     syncRows()
     saveMsg.value = '保存しました'
   } catch (e) {
@@ -200,6 +222,26 @@ function hasPermission(userId: string, tenantId: string): boolean {
             >
               削除
             </button>
+          </div>
+
+          <!-- 緯度経度（天気取得用）— platform_admin のみ表示 -->
+          <div v-if="auth.role === 'platform_admin'" class="flex items-center gap-2">
+            <span class="text-xs text-neutral-400 dark:text-neutral-500 shrink-0 w-16">緯度</span>
+            <input
+              v-model="row.latStr"
+              type="text"
+              inputmode="decimal"
+              placeholder="例: 35.6762"
+              class="flex-1 rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-xs"
+            />
+            <span class="text-xs text-neutral-400 dark:text-neutral-500 shrink-0 w-16">経度</span>
+            <input
+              v-model="row.lonStr"
+              type="text"
+              inputmode="decimal"
+              placeholder="例: 139.6503"
+              class="flex-1 rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-xs"
+            />
           </div>
 
           <!-- platform_admin 専用アクション -->

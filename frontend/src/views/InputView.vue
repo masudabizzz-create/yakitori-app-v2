@@ -50,6 +50,14 @@ watch(drinkRatioStr, (v) => {
   if (drinkRatioErr.value) drinkRatioErr.value = ''
 })
 
+/**
+ * 組数・客数の文字列バッファ。
+ * 空文字 = 未入力（null）と 0 入力を区別するために文字列で管理する。
+ */
+const groupsCountStr = ref<string>('')
+const guestsCountStr = ref<string>('')
+const groupsGuestsErr = ref<string>('')
+
 // 入力フォーム
 const form = reactive<DailyInputForm>({
   staffName: '',
@@ -61,6 +69,8 @@ const form = reactive<DailyInputForm>({
   drinkRatio: 0,
   memo: '',
   skewerInputs: {},
+  groupsCount: null,
+  guestsCount: null,
 })
 
 // カテゴリ表示順（副産物は入力対象外）
@@ -193,8 +203,42 @@ function validateDrinkRatio(): boolean {
   return true
 }
 
+/**
+ * 組数・客数のバリデーション。
+ * 空欄（null）は送信不可、0 は有効。整数のみ許可。
+ */
+function validateGroupsGuests(): boolean {
+  groupsGuestsErr.value = ''
+  const gs = groupsCountStr.value.trim()
+  const cs = guestsCountStr.value.trim()
+  if (gs === '' || cs === '') {
+    groupsGuestsErr.value = '総組数と総客数を入力してください（0も有効です）'
+    return false
+  }
+  const g = parseInt(gs, 10)
+  const c = parseInt(cs, 10)
+  if (isNaN(g) || g < 0 || !Number.isInteger(g)) {
+    groupsGuestsErr.value = '総組数は0以上の整数を入力してください'
+    return false
+  }
+  if (isNaN(c) || c < 0 || !Number.isInteger(c)) {
+    groupsGuestsErr.value = '総客数は0以上の整数を入力してください'
+    return false
+  }
+  form.groupsCount = g
+  form.guestsCount = c
+  return true
+}
+
+/** 今日の日付を YYYY-MM-DD 形式で返す */
+function todayYmd(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 async function handleSubmit() {
   showConfirm.value = false
+  if (!validateGroupsGuests()) return
   if (!validateDrinkRatio()) return
   submitting.value = true
   submitError.value = ''
@@ -249,6 +293,18 @@ async function handleSubmit() {
     })
 
     dailyLogStore.clearDraft()
+
+    // 天気データを非同期で取得（失敗しても保存処理をブロックしない）
+    ;(async () => {
+      try {
+        const { supabase } = await import('@/lib/supabase')
+        await supabase.functions.invoke('fetch-weather', {
+          body: { action: 'historical', tenant_id: tenantId, log_date: todayYmd() },
+        })
+      } catch {
+        // 天気取得エラーは無視（UI に影響させない）
+      }
+    })()
 
     if (lineRes.lineSent) {
       // 送信完了後、仕込みダッシュボードへ自動遷移
@@ -385,6 +441,47 @@ async function handleSubmit() {
               <span class="text-sm text-neutral-700 dark:text-neutral-200">プレミアム組数</span>
               <StepperInput v-model="form.coursePremium" />
             </div>
+            <!-- 総組数・総客数（実入力・必須） -->
+            <div class="px-4 py-3 space-y-0.5 border-t-2 border-brand-500/20">
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+                  総組数
+                  <span class="ml-1 text-[10px] text-brand-500 font-normal">必須</span>
+                </span>
+                <input
+                  v-model="groupsCountStr"
+                  type="number"
+                  inputmode="numeric"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  class="w-24 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+                  :class="groupsGuestsErr ? 'border-red-400 dark:border-red-500' : ''"
+                  @input="groupsGuestsErr = ''"
+                />
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+                  総客数
+                  <span class="ml-1 text-[10px] text-brand-500 font-normal">必須</span>
+                </span>
+                <input
+                  v-model="guestsCountStr"
+                  type="number"
+                  inputmode="numeric"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  class="w-24 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+                  :class="groupsGuestsErr ? 'border-red-400 dark:border-red-500' : ''"
+                  @input="groupsGuestsErr = ''"
+                />
+              </div>
+              <p v-if="groupsGuestsErr" class="text-xs text-red-500 dark:text-red-400 text-right pt-0.5">
+                {{ groupsGuestsErr }}
+              </p>
+            </div>
+
             <div class="px-4 py-3 flex items-center justify-between">
               <span class="text-sm text-neutral-700 dark:text-neutral-200">追加串</span>
               <div class="flex items-center gap-1.5">
@@ -490,6 +587,7 @@ async function handleSubmit() {
         <li class="font-semibold text-neutral-700 dark:text-neutral-200">🏪 {{ currentTenantName }}</li>
         <li>焼師: {{ form.staffName }}</li>
         <li>コース: C{{ form.courseCasual }} / S{{ form.courseStandard }} / P{{ form.coursePremium }}</li>
+        <li>総組数: {{ groupsCountStr }}組 / 総客数: {{ guestsCountStr }}名</li>
         <li>合計串本数: {{ totalSkewers }}本</li>
         <li>総売上: ¥{{ form.totalSales.toLocaleString() }}</li>
       </ul>

@@ -244,6 +244,52 @@ export function detectAnomalies(logs: DailyLog[], threshold = 1.5): AnomalyRecor
   return anomalies.sort((a, b) => b.sigmas - a.sigmas).slice(0, 5)
 }
 
+// ─── 実入力 組数・客数・客単価 ───────────────────────────────────────
+
+/**
+ * 実入力された組数・客数がある日のみを対象とした客数・客単価指標。
+ *
+ * groups_count / guests_count が null または undefined のログは除外する。
+ * sampleCount が 0 のとき他の値もすべて 0 になるため、呼び出し側で
+ * `sampleCount === 0` を判定して「データなし」を表示すること。
+ */
+export interface RealCustomerMetrics {
+  /** 実入力データがある営業日数 */
+  sampleCount: number
+  /** 期間合計実組数 */
+  totalGroups: number
+  /** 期間合計実客数 */
+  totalGuests: number
+  /** 1日あたり平均組数 */
+  avgGroupsPerDay: number
+  /** 1日あたり平均客数 */
+  avgGuestsPerDay: number
+  /** グループ単価（売上 ÷ 実組数） */
+  avgSpendPerGroup: number
+  /** 客単価（売上 ÷ 実客数） */
+  avgSpendPerGuest: number
+}
+
+export function calcRealCustomerMetrics(logs: DailyLog[]): RealCustomerMetrics {
+  // 組数・客数ともに実入力されている日だけ対象
+  const realLogs = logs.filter(
+    (l) => l.groups_count != null && l.guests_count != null,
+  )
+  const sampleCount = realLogs.length
+  const totalGroups = realLogs.reduce((a, l) => a + (l.groups_count ?? 0), 0)
+  const totalGuests = realLogs.reduce((a, l) => a + (l.guests_count ?? 0), 0)
+  const totalSales = realLogs.reduce((a, l) => a + l.total_sales, 0)
+  return {
+    sampleCount,
+    totalGroups,
+    totalGuests,
+    avgGroupsPerDay: sampleCount > 0 ? Math.round(totalGroups / sampleCount) : 0,
+    avgGuestsPerDay: sampleCount > 0 ? Math.round(totalGuests / sampleCount) : 0,
+    avgSpendPerGroup: totalGroups > 0 ? Math.round(totalSales / totalGroups) : 0,
+    avgSpendPerGuest: totalGuests > 0 ? Math.round(totalSales / totalGuests) : 0,
+  }
+}
+
 // ─── AI搭載準備 ───────────────────────────────────────────────────
 
 export interface AnalyticsSummaryJson {

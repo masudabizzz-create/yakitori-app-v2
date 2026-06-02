@@ -625,7 +625,7 @@ Deno.serve(async (req) => {
   // ============================================================
   if (action === 'update_tenant') {
     if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
-    const { tenant_id, name, primary_color } = payload
+    const { tenant_id, name, primary_color, latitude, longitude } = payload
     if (!tenant_id || !name) {
       return json(400, { error: 'tenant_id と name は必須です' })
     }
@@ -633,6 +633,17 @@ Deno.serve(async (req) => {
     const updates: Record<string, unknown> = { name }
     if (typeof primary_color === 'string' && /^#[0-9a-f]{6}$/i.test(primary_color)) {
       updates.primary_color = primary_color
+    }
+    // 緯度経度（null = 設定解除）
+    if (typeof latitude === 'number' && isFinite(latitude)) {
+      updates.latitude = latitude
+    } else if (latitude === null) {
+      updates.latitude = null
+    }
+    if (typeof longitude === 'number' && isFinite(longitude)) {
+      updates.longitude = longitude
+    } else if (longitude === null) {
+      updates.longitude = null
     }
 
     const { error } = await supabaseAdmin
