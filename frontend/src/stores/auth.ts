@@ -9,6 +9,13 @@ import type { AppUser, Tenant, UserRole } from '@/types'
 const ACTIVE_TENANT_KEY = 'yakitori_active_tenant_id'
 
 /**
+ * login() によるフレッシュログインかどうかを示すフラグ。
+ * ページリロード（INITIAL_SESSION）との区別に使用。
+ * 複数テナントにアクセス可能なユーザーは毎回ログイン後に店舗選択画面を表示する。
+ */
+let _isFreshLogin = false
+
+/**
  * 認証ストア
  * Supabase Auth のセッションと、users テーブルのアプリ内ユーザー情報を管理する。
  */
@@ -113,18 +120,34 @@ export const useAuthStore = defineStore('auth', () => {
   /**
    * localStorage に保存されたテナントIDを検証して activeTenantId に復元する。
    * アクセス可能なテナント一覧に含まれない場合は localStorage をクリアする。
+   *
+   * フレッシュログイン（_isFreshLogin = true）かつ複数テナントにアクセス可能な場合は
+   * activeTenantId を復元しない（ログイン後に毎回店舗選択画面を表示するため）。
+   * この場合も localStorage の値は残し、選択画面でのデフォルト表示に使用する。
    */
   function _restoreActiveTenant(): void {
+    const wasFreshLogin = _isFreshLogin
+    _isFreshLogin = false
+
     const saved = localStorage.getItem(ACTIVE_TENANT_KEY)
     if (!saved) return
+
     const accessible = accessibleTenants.value
-    if (accessible.length === 0 || accessible.some((t) => t.id === saved)) {
-      activeTenantId.value = saved
-    } else {
-      // アクセス権がなくなったテナントは削除
+
+    // アクセス権がなくなったテナントは削除
+    if (accessible.length > 0 && !accessible.some((t) => t.id === saved)) {
       localStorage.removeItem(ACTIVE_TENANT_KEY)
       activeTenantId.value = undefined
+      return
     }
+
+    // フレッシュログイン + 複数テナント → 選択画面を強制表示（復元しない）
+    if (wasFreshLogin && accessible.length > 1) {
+      activeTenantId.value = undefined
+      return
+    }
+
+    activeTenantId.value = saved
   }
 
   /** users テーブルから自分のレコードを取得し、アクセス可能な店舗一覧も更新する。 */
@@ -155,8 +178,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** メール + パスワードでログインする。 */
   async function login(email: string, password: string): Promise<void> {
+    _isFreshLogin = true
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw new Error(translateAuthError(error.message))
+    if (error) {
+      _isFreshLogin = false
+      throw new Error(translateAuthError(error.message))
+    }
   }
 
   /**
@@ -240,6 +267,33 @@ export const useAuthStore = defineStore('auth', () => {
     if (error) throw new Error(error.message)
   }
 
+  /**
+   * platform_admin の拠点店舗（ホームテナント）を変更する。
+   * users.tenant_id を更新し、ストアの appUser を即時反映する。
+   * RLS ポリシー "users_update_self_platform_admin"（migration 020）により
+   * 他テナント訪問中でも自分自身のレコードを更新できる。
+   */
+  async function updateHomeTenant(tenantId: string): Promise<void> {
+    if (!authUser.value || role.value !== 'platform_admin') {
+      throw new Error('この操作は platform_admin のみ実行できます')
+    }
+    const { error } = await supabase
+      .from('users')
+      .update({ tenant_id: tenantId })
+      .eq('id', authUser.value.id)
+    if (error) throw new Error(error.message)
+
+    await insertAuditLog({
+      tenantId: appUser.value?.tenant_id ?? null,
+      action: 'user.update_home_tenant',
+      actorName: appUser.value?.name ?? null,
+    })
+
+    if (appUser.value) {
+      appUser.value = { ...appUser.value, tenant_id: tenantId }
+    }
+  }
+
   return {
     authUser,
     appUser,
@@ -254,6 +308,7 @@ export const useAuthStore = defineStore('auth', () => {
     accessibleTenants,
     setActiveTenantId,
     enterTenant,
+    updateHomeTenant,
     initialize,
     fetchAppUser,
     fetchAccessibleTenants,

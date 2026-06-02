@@ -223,6 +223,24 @@ Deno.serve(async (req) => {
     const { role, tenant_id } = payload
     if (!role) return json(400, { error: 'role は必須です' })
 
+    // ロールランク検証: 発行者より下位のロールのみ発行可能
+    const ROLE_RANK: Record<string, number> = {
+      platform_admin: 5,
+      manager:        4,
+      store_owner:    3,
+      staff_both:     1,
+      staff_kitchen:  1,
+      staff_hall:     1,
+    }
+    const callerRank = ROLE_RANK[callerRole] ?? 0
+    const issuedRank = ROLE_RANK[role as string] ?? 0
+    if (issuedRank === 0) {
+      return json(400, { error: '無効なロールです' })
+    }
+    if (issuedRank >= callerRank) {
+      return json(403, { error: '自分と同格以上のロールのQRは発行できません' })
+    }
+
     const targetTenantId = (tenant_id as string | undefined) ?? callerTenantId
     const token = crypto.randomUUID()
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()

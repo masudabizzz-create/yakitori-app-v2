@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import QRCode from 'qrcode'
 import { useUsersStore } from '@/stores/users'
 import { useTenantsStore } from '@/stores/tenants'
@@ -226,12 +226,25 @@ async function executeTransfer() {
 
 // ─── QRコード発行 ─────────────────────────────────────────────
 
+/**
+ * QR発行時に選択できるロール = 自分のランク未満のロールのみ。
+ * assignableRoles と同じ条件（自分より下位のみ）。
+ */
+const qrAssignableRoles = assignableRoles  // alias for clarity in template
+
 const qrRole       = ref<UserRole>('staff_both')
 const generating   = ref(false)
 const generateErr  = ref('')
 const qrDataUrl    = ref('')
 const qrExpiresAt  = ref('')
 const qrToken      = ref('')
+
+// qrAssignableRoles が変わったとき（ロール変更等）に qrRole が無効になっていたらリセット
+watch(qrAssignableRoles, (roles) => {
+  if (roles.length > 0 && !roles.find((r) => r.value === qrRole.value)) {
+    qrRole.value = roles[0].value
+  }
+}, { immediate: true })
 
 function buildRegisterUrl(token: string): string {
   const base = window.location.origin + window.location.pathname
@@ -253,6 +266,47 @@ async function generateQr() {
     generateErr.value = e instanceof Error ? e.message : 'QR発行に失敗しました'
   } finally {
     generating.value = false
+  }
+}
+
+/** QRコード画像をダウンロードする */
+function downloadQr() {
+  if (!qrDataUrl.value) return
+  const a = document.createElement('a')
+  a.href = qrDataUrl.value
+  a.download = `qr-invite-${qrRole.value}.png`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+/** Web Share API でQRコード画像を共有する（スマホ向け） */
+const canShare = computed(() => typeof navigator.share === 'function')
+
+async function shareQr() {
+  if (!qrDataUrl.value || !canShare.value) return
+  try {
+    const res = await fetch(qrDataUrl.value)
+    const blob = await res.blob()
+    const file = new File([blob], `qr-invite-${qrRole.value}.png`, { type: 'image/png' })
+    const shareData: ShareData = {
+      title: '串在庫管理 スタッフ登録',
+      text: `登録用QRコード（${roleLabel(qrRole.value)}）\n有効期限: ${formatExpiry(qrExpiresAt.value)}`,
+      files: [file],
+    }
+    if (navigator.canShare?.(shareData)) {
+      await navigator.share(shareData)
+    } else {
+      // ファイル共有非対応端末はURLのみで共有
+      await navigator.share({
+        title: '串在庫管理 スタッフ登録',
+        text: `登録用QRコード（${roleLabel(qrRole.value)}）\n有効期限: ${formatExpiry(qrExpiresAt.value)}\n${buildRegisterUrl(qrToken.value)}`,
+      })
+    }
+  } catch (e) {
+    // AbortError（ユーザーがキャンセル）は無視
+    if (e instanceof DOMException && e.name === 'AbortError') return
+    generateErr.value = e instanceof Error ? e.message : '共有に失敗しました'
   }
 }
 
@@ -333,12 +387,14 @@ function fmtDateTime(iso: string | null | undefined): string {
       </h2>
       <div class="px-4 py-4 space-y-3">
         <div>
-          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">役割</label>
+          <label class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
+            役割 <span class="text-neutral-400 dark:text-neutral-500 font-normal">（自分より下位のみ選択可）</span>
+          </label>
           <select
             v-model="qrRole"
             class="w-full rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500 text-sm"
           >
-            <option v-for="r in ROLES" :key="r.value" :value="r.value">{{ r.label }}</option>
+            <option v-for="r in qrAssignableRoles" :key="r.value" :value="r.value">{{ r.label }}</option>
           </select>
         </div>
         <p v-if="generateErr" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
@@ -362,6 +418,24 @@ function fmtDateTime(iso: string | null | undefined): string {
               有効期限: <span class="font-semibold">{{ formatExpiry(qrExpiresAt) }}</span> まで
             </p>
             <p class="text-xs text-neutral-400 dark:text-neutral-500">このQRコードは24時間有効・使い捨てです</p>
+          </div>
+          <!-- 画像保存・共有ボタン -->
+          <div class="flex gap-2 w-full">
+            <button
+              type="button"
+              class="flex-1 py-2.5 rounded-xl border border-edge dark:border-edge-dark text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              @click="downloadQr"
+            >
+              💾 画像を保存
+            </button>
+            <button
+              v-if="canShare"
+              type="button"
+              class="flex-1 py-2.5 rounded-xl bg-brand-500/10 border border-brand-500/30 text-sm font-medium text-brand-600 dark:text-brand-400 hover:bg-brand-500/20 transition-colors"
+              @click="shareQr"
+            >
+              📤 共有（LINE等）
+            </button>
           </div>
           <button
             type="button"

@@ -54,6 +54,8 @@
 016_fix_cross_tenant_rls.sql
 017_active_tenant_sessions.sql
 018_tenant_primary_color.sql
+019_monthly_sales_target.sql
+020_platform_admin_home_tenant.sql
 ```
 
 #### Step 3: platform_admin ユーザーを登録
@@ -361,6 +363,7 @@ npx tsx migrate_from_gas.ts
 - `delete_user` — スタッフ削除（Auth ユーザー削除 → CASCADE）
 - `force_signout` — 指定ユーザーの全セッションを強制失効（退職・ロール変更時に自動呼び出し）
 - `create_tenant` / `update_tenant` / `delete_tenant` — 店舗の作成・更新・削除
+- `create_qr_invitation` — QRコード発行（発行者ロール未満のロールのみ発行可、サーバー側で検証）
 
 #### デプロイ
 
@@ -369,6 +372,10 @@ Supabase CLI でリンク済みの状態（4-2 参照）で：
 ```bash
 supabase functions deploy manage-users
 ```
+
+> **変更履歴**: operations-feedback v1 にて `create_qr_invitation` にロールランク検証を追加。
+> 発行者と同格以上のロールの QR は Edge Function 側でも拒否されるようになった。
+> 既存の本番環境への適用には上記コマンドでの再デプロイが必要。
 
 成功すると `https://mmquefvklrxjcmoxgvjb.supabase.co/functions/v1/manage-users` で公開されます。
 

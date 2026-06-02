@@ -12,6 +12,15 @@ const error = ref('')
 /** ホームテナントID（所属店舗） */
 const homeTenantId = computed(() => auth.appUser?.tenant_id)
 
+/**
+ * 前回選択したテナントID（localStorage から読み取り）。
+ * フレッシュログイン時は activeTenantId が undefined でも
+ * localStorage に前回値が残っているため、デフォルト選択のヒントとして使用する。
+ */
+const lastSelectedTenantId = computed(
+  () => localStorage.getItem('yakitori_active_tenant_id') ?? undefined,
+)
+
 async function enterStore(tenantId: string) {
   entering.value = tenantId
   error.value = ''
@@ -75,7 +84,7 @@ async function enterStore(tenantId: string) {
               <p class="font-semibold text-neutral-900 dark:text-neutral-50 truncate">
                 {{ tenant.name }}
               </p>
-              <p class="text-xs mt-0.5">
+              <p class="text-xs mt-0.5 flex items-center gap-1.5">
                 <span
                   v-if="tenant.id === homeTenantId"
                   class="text-brand-500 font-medium"
@@ -84,6 +93,10 @@ async function enterStore(tenantId: string) {
                   v-else
                   class="text-amber-600 dark:text-amber-400 font-medium"
                 >訪問可能</span>
+                <span
+                  v-if="tenant.id === lastSelectedTenantId"
+                  class="text-neutral-400 dark:text-neutral-500"
+                >· 前回</span>
               </p>
             </div>
 

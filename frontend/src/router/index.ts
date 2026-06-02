@@ -47,13 +47,13 @@ const router = createRouter({
       meta: { requiresAuth: true, title: '仕込みダッシュボード' },
     },
     {
-      // platform_admin / staff_both のみ
+      // store_owner 以上（store_owner / manager / platform_admin）
       path: '/analytics',
       name: 'analytics',
       component: () => import('@/views/AnalyticsView.vue'),
       meta: {
         requiresAuth: true,
-        allowedRoles: ['platform_admin', 'staff_both'],
+        allowedRoles: ['platform_admin', 'manager', 'store_owner'],
         title: '分析・集計',
       },
     },

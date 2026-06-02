@@ -33,7 +33,7 @@ const navCards: NavCard[] = [
   { emoji: '🔪', label: '仕込みダッシュボード', desc: '明日の仕込みを確認',        to: '/dashboard' },
   {
     emoji: '📊', label: '分析・集計', desc: '売上・曜日別トレンド', to: '/analytics',
-    allowedRoles: ['platform_admin', 'staff_both'],
+    allowedRoles: ['platform_admin', 'manager', 'store_owner'],
   },
   {
     emoji: '📦', label: '発注推定', desc: '週間来客数から発注量を算出', to: '/order',
