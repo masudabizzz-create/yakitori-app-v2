@@ -278,18 +278,15 @@ function todayYmd(): string {
 }
 
 async function handleSubmit() {
-  // バリデーション（通過してからモーダルを閉じる）
+  showConfirm.value = false
   const groupsOk = validateGroupsGuests()
   const drinkOk = validateDrinkRatio()
   if (!groupsOk || !drinkOk) {
-    // モーダルを閉じ、エラー箇所へスクロール
-    showConfirm.value = false
     if (!groupsOk) {
       nextTick(() => groupsGuestsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
     }
     return
   }
-  showConfirm.value = false
   submitting.value = true
   submitError.value = ''
   lineWarning.value = ''
