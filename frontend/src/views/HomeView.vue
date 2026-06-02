@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useDailyLogStore } from '@/stores/dailyLog'
 import { supabase } from '@/lib/supabase'
 import { ROLE_RANK } from '@/lib/roleRank'
+import { useThemeStore } from '@/stores/theme'
 import VisitingBanner from '@/components/VisitingBanner.vue'
 import type { UserRole } from '@/types'
 import {
@@ -16,6 +17,8 @@ import {
   Wrench,
   Server,
   Sun,
+  Moon,
+  Monitor,
   CloudSun,
   Cloud,
   CloudFog,
@@ -29,6 +32,7 @@ import {
 const router = useRouter()
 const auth = useAuthStore()
 const dailyLogStore = useDailyLogStore()
+const theme = useThemeStore()
 
 const iconSrc = `${import.meta.env.BASE_URL}icons/icon-192.png`
 
@@ -388,6 +392,22 @@ async function handleLogout() {
               </button>
             </div>
           </div>
+          <!-- テーマ切替 -->
+          <button
+            class="
+              flex items-center justify-center
+              text-white/70 hover:text-white
+              border border-white/25 hover:border-white/50
+              w-8 h-8 rounded-xl transition-colors active:scale-95
+            "
+            :aria-label="`テーマ切替（現在: ${theme.mode}）`"
+            @click="theme.cycle()"
+          >
+            <component
+              :is="theme.mode === 'light' ? Sun : theme.mode === 'dark' ? Moon : Monitor"
+              :size="14"
+            />
+          </button>
           <!-- ログアウト -->
           <button
             class="
