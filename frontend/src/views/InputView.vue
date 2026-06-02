@@ -54,8 +54,8 @@ watch(drinkRatioStr, (v) => {
  * 組数・客数の文字列バッファ。
  * 空文字 = 未入力（null）と 0 入力を区別するために文字列で管理する。
  */
-const groupsCountStr = ref<string>('')
-const guestsCountStr = ref<string>('')
+const groupsCountStr = ref<string>('0')
+const guestsCountStr = ref<string>('0')
 const groupsGuestsErr = ref<string>('')
 
 // 入力フォーム
@@ -265,13 +265,9 @@ const groupsGuestsRef = ref<HTMLDivElement | null>(null)
  * エラーがある場合は該当フィールドへスクロールして返す。
  */
 function openConfirm() {
-  const groupsOk = validateGroupsGuests()
-  const drinkOk = validateDrinkRatio()
-  if (!groupsOk) {
-    nextTick(() => groupsGuestsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
-    return
-  }
-  if (!drinkOk) return
+  // エラー表示をリセットしてモーダルを開く（バリデーションは「送信する」押下時に実施）
+  groupsGuestsErr.value = ''
+  drinkRatioErr.value = ''
   showConfirm.value = true
 }
 
@@ -282,9 +278,18 @@ function todayYmd(): string {
 }
 
 async function handleSubmit() {
+  // バリデーション（通過してからモーダルを閉じる）
+  const groupsOk = validateGroupsGuests()
+  const drinkOk = validateDrinkRatio()
+  if (!groupsOk || !drinkOk) {
+    // モーダルを閉じ、エラー箇所へスクロール
+    showConfirm.value = false
+    if (!groupsOk) {
+      nextTick(() => groupsGuestsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+    }
+    return
+  }
   showConfirm.value = false
-  if (!validateGroupsGuests()) return
-  if (!validateDrinkRatio()) return
   submitting.value = true
   submitError.value = ''
   lineWarning.value = ''
@@ -560,11 +565,9 @@ async function handleSubmit() {
                 </span>
                 <input
                   v-model="groupsCountStr"
-                  type="number"
+                  type="text"
                   inputmode="numeric"
-                  min="0"
-                  step="1"
-                  placeholder="0"
+                  pattern="[0-9]*"
                   class="w-24 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
                   :class="groupsGuestsErr ? 'border-red-400 dark:border-red-500' : ''"
                   @input="groupsGuestsErr = ''"
@@ -577,11 +580,9 @@ async function handleSubmit() {
                 </span>
                 <input
                   v-model="guestsCountStr"
-                  type="number"
+                  type="text"
                   inputmode="numeric"
-                  min="0"
-                  step="1"
-                  placeholder="0"
+                  pattern="[0-9]*"
                   class="w-24 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
                   :class="groupsGuestsErr ? 'border-red-400 dark:border-red-500' : ''"
                   @input="groupsGuestsErr = ''"
