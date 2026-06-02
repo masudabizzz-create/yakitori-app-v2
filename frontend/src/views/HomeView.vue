@@ -398,7 +398,7 @@ async function handleLogout() {
               flex items-center justify-center
               text-white/70 hover:text-white
               border border-white/25 hover:border-white/50
-              w-8 h-8 rounded-xl transition-colors active:scale-95
+              min-h-tap min-w-tap rounded-xl transition-colors active:scale-95
             "
             :aria-label="`テーマ切替（現在: ${theme.mode}）`"
             @click="theme.cycle()"

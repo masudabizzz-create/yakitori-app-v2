@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { Eye } from 'lucide-vue-next'
 
 const auth = useAuthStore()
 
@@ -27,7 +28,7 @@ const homeName = computed(() =>
     class="bg-brand-500/10 border-b border-brand-500/30 px-4 py-1.5"
   >
     <div class="max-w-lg mx-auto flex items-center gap-1.5 text-xs text-brand-700 dark:text-brand-400">
-      <span>👁</span>
+      <Eye :size="16" />
       <span class="font-semibold">{{ visitingName }}</span>
       <span>を訪問中</span>
       <span class="opacity-40 mx-0.5">·</span>

@@ -343,17 +343,18 @@ HomeView の実装から一般則化したフォールバック方針:
 
 ---
 
-## 補足: 実装との乖離（要確認事項）
+## 補足: 実装との乖離（解消済み）
 
-HomeView のドキュメント化にあたり、以下の点が「ルールと実装が完全には一致していない」と判断した箇所です。修正方針はオーナーに委ねます。
+当初ドキュメント化時に指摘した3点は、すべて対応済みです。
 
-1. **`VisitingBanner.vue` の絵文字 `👁`**
-   アイコン方針（lucide 統一・絵文字禁止）と矛盾。ただし既存コンポーネントのため本ドキュメントでは例外扱いと記載済み。
+1. **`VisitingBanner.vue` の絵文字 `👁`** → ✅ 解消
+   `lucide-vue-next` の `Eye` アイコン（`:size="16"`）に置き換え済み。絵文字の例外は廃止。
 
-2. **`style.css` の `body { background-color: #f5f5f5; }` ハードコード**
-   Tailwind の `bg-app`（`#F5F5F5`）と実値は同じだが、CSS 変数を経由していない。
-   `bg-app` は Tailwind 拡張色で JS 管理できないため許容範囲ともいえるが、原則と微妙に矛盾する。
+2. **`style.css` の `body { background-color: #f5f5f5; }` ハードコード** → ✅ 解消
+   `index.html` の `<body>` に `class="bg-app dark:bg-app-dark"` を付与し、
+   `style.css` の `background-color` 行を削除。ソース・オブ・トゥルースが `tailwind.config.ts` に一本化。
+   `color: #111111` / `.dark body { color: #f5f5f5 }` は非テーマ色のため style.css に残す。
 
-3. **タップ領域の一部不足**
-   テーマ切替ボタンは `w-8 h-8`（32px）。iOS HIG 推奨の 44px に届いていない。
-   `min-h-tap`（44px）はtailwind.config で定義済みのため、必要なら適用可能。
+3. **タップ領域の一部不足** → ✅ 解消
+   テーマ切替ボタンを `w-8 h-8`（32px）から `min-h-tap min-w-tap`（44px）に変更。
+   アイコンは `:size="14"` のまま中央寄せを維持。行は `items-center` で垂直揃え済み。
