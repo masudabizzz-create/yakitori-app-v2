@@ -648,7 +648,14 @@ async function handleSubmit() {
       class="fixed bottom-0 inset-x-0 bg-card dark:bg-card-dark border-t border-edge dark:border-edge-dark px-4 py-3"
       style="padding-bottom: calc(0.75rem + env(safe-area-inset-bottom))"
     >
-      <div class="max-w-lg mx-auto">
+      <div class="max-w-lg mx-auto space-y-2">
+        <!-- バリデーションエラーをボタン直上に表示 -->
+        <p v-if="groupsGuestsErr" class="text-xs text-red-500 dark:text-red-400 text-center px-1">
+          {{ groupsGuestsErr }}
+        </p>
+        <p v-if="drinkRatioErr" class="text-xs text-red-500 dark:text-red-400 text-center px-1">
+          {{ drinkRatioErr }}
+        </p>
         <button
           type="button"
           :disabled="submitting"
