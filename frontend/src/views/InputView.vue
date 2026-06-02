@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSkewersStore } from '@/stores/skewers'
@@ -254,6 +254,25 @@ function validateGroupsGuests(): boolean {
   form.groupsCount = g
   form.guestsCount = c
   return true
+}
+
+// 総組数・総客数セクションへのスクロール用 ref
+const groupsGuestsRef = ref<HTMLDivElement | null>(null)
+
+/**
+ * 「確認して送信」ボタン押下時の処理。
+ * モーダルを開く前にバリデーションを実行し、
+ * エラーがある場合は該当フィールドへスクロールして返す。
+ */
+function openConfirm() {
+  const groupsOk = validateGroupsGuests()
+  const drinkOk = validateDrinkRatio()
+  if (!groupsOk) {
+    nextTick(() => groupsGuestsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+    return
+  }
+  if (!drinkOk) return
+  showConfirm.value = true
 }
 
 /** 今日の日付を YYYY-MM-DD 形式で返す */
@@ -533,7 +552,7 @@ async function handleSubmit() {
               />
             </div>
             <!-- 総組数・総客数（実入力・必須） -->
-            <div class="px-4 py-3 space-y-0.5 border-t-2 border-brand-500/20">
+            <div ref="groupsGuestsRef" class="px-4 py-3 space-y-0.5 border-t-2 border-brand-500/20">
               <div class="flex items-center justify-between">
                 <span class="text-sm font-medium text-neutral-700 dark:text-neutral-200">
                   総組数
@@ -634,7 +653,7 @@ async function handleSubmit() {
           type="button"
           :disabled="submitting"
           class="w-full py-4 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white font-semibold rounded-2xl active:scale-95 transition-transform"
-          @click="showConfirm = true"
+          @click="openConfirm"
         >
           確認して送信
         </button>
