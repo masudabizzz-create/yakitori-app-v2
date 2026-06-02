@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSkewersStore } from '@/stores/skewers'
@@ -11,9 +11,9 @@ import { ROLE_RANK } from '@/lib/roleRank'
 import { notifyDailyReport } from '@/composables/useLineNotify'
 import StepperInput from '@/components/StepperInput.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
-import TenantSwitcher from '@/components/TenantSwitcher.vue'
 import VisitingBanner from '@/components/VisitingBanner.vue'
 import type { DailyInputForm, SkewerCategory } from '@/types'
+import { ChevronLeft, Store, BedDouble } from 'lucide-vue-next'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -103,6 +103,31 @@ const canChangeStaff = computed(() =>
   ROLE_RANK[auth.role ?? 'staff_both'] >= 4,
 )
 
+/** manager 以上かつ複数テナントにアクセスできる場合のみ店舗切替ボタンを表示 */
+const showTenantSwitcher = computed(() =>
+  ROLE_RANK[auth.role ?? 'staff_both'] >= 4 && auth.accessibleTenants.length > 1,
+)
+
+// ─── インライン店舗切替メニュー ────────────────────────────────────
+const tenantMenuRef = ref<HTMLDivElement | null>(null)
+const showTenantMenu = ref(false)
+
+async function handleTenantSelect(tenantId: string) {
+  showTenantMenu.value = false
+  if (tenantId === auth.effectiveTenantId) return
+  await auth.enterTenant(tenantId)
+}
+
+function handleDocumentClick(e: MouseEvent) {
+  if (tenantMenuRef.value && !tenantMenuRef.value.contains(e.target as Node)) {
+    showTenantMenu.value = false
+  }
+}
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick)
+})
+
 // 翌日が日曜か
 const tomorrowIsSunday = computed(() => {
   const t = new Date()
@@ -137,6 +162,7 @@ function unitLabel(category: SkewerCategory): string {
 }
 
 onMounted(async () => {
+  document.addEventListener('click', handleDocumentClick)
   loading.value = true
   loadError.value = ''
   try {
@@ -326,10 +352,51 @@ async function handleSubmit() {
     <!-- ヘッダー -->
     <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
       <VisitingBanner />
-      <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
-        <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm">‹ ホーム</router-link>
-        <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">営業後入力</h1>
-        <div class="ml-auto"><TenantSwitcher /></div>
+      <div class="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
+        <router-link
+          to="/"
+          class="flex items-center gap-0.5 text-sm text-neutral-400 dark:text-neutral-500
+                 hover:text-neutral-600 dark:hover:text-neutral-300 shrink-0"
+        >
+          <ChevronLeft :size="16" />ホーム
+        </router-link>
+        <h1 class="text-base font-semibold text-neutral-900 dark:text-neutral-50 flex-1 truncate">営業後入力</h1>
+        <!-- 店舗切替（manager以上・複数テナント時のみ） -->
+        <div v-if="showTenantSwitcher" ref="tenantMenuRef" class="relative shrink-0">
+          <button
+            class="flex items-center gap-1.5 text-xs font-medium
+                   bg-brand-50 text-brand-700
+                   px-3 py-1.5 rounded-xl transition-colors active:scale-95
+                   hover:bg-brand-100 dark:bg-brand-500/20 dark:text-brand-300 dark:hover:bg-brand-500/30"
+            @click.stop="showTenantMenu = !showTenantMenu"
+          >
+            <Store :size="13" />
+            店舗切替
+          </button>
+          <!-- ドロップダウン -->
+          <div
+            v-if="showTenantMenu"
+            class="absolute right-0 top-full mt-1.5 z-50
+                   bg-white dark:bg-neutral-800
+                   border border-edge dark:border-edge-dark
+                   rounded-xl shadow-lg overflow-hidden min-w-[9rem]"
+          >
+            <button
+              v-for="t in auth.accessibleTenants"
+              :key="t.id"
+              class="w-full text-left px-3.5 py-2.5 text-sm
+                     text-neutral-800 dark:text-neutral-100
+                     hover:bg-brand-50 dark:hover:bg-brand-500/20
+                     transition-colors"
+              :class="t.id === auth.effectiveTenantId
+                ? 'font-semibold text-brand-700 dark:text-brand-300'
+                : ''"
+              @click="handleTenantSelect(t.id)"
+            >
+              {{ t.name }}
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -344,9 +411,10 @@ async function handleSubmit() {
         <!-- 日曜バナー -->
         <div
           v-if="tomorrowIsSunday"
-          class="bg-brand-500/15 text-brand-600 dark:text-brand-400 border border-brand-500/25 rounded-2xl px-4 py-3 text-sm font-semibold"
+          class="flex items-center gap-2 bg-brand-500/15 text-brand-600 dark:text-brand-400 border border-brand-500/25 rounded-2xl px-4 py-3 text-sm font-semibold"
         >
-          🛌 明日は日曜日 — 無理のない仕込みで
+          <BedDouble :size="16" class="shrink-0" />
+          明日は日曜日 — 無理のない仕込みで
         </div>
 
         <!-- 下書き復元通知 -->
@@ -441,6 +509,29 @@ async function handleSubmit() {
               <span class="text-sm text-neutral-700 dark:text-neutral-200">プレミアム組数</span>
               <StepperInput v-model="form.coursePremium" />
             </div>
+            <div class="px-4 py-3 flex items-center justify-between">
+              <span class="text-sm text-neutral-700 dark:text-neutral-200">追加串</span>
+              <div class="flex items-center gap-1.5">
+                <StepperInput v-model="form.extraSkewers" />
+                <span class="text-sm text-neutral-500 dark:text-neutral-400 w-4">本</span>
+              </div>
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between bg-brand-500/[0.04]">
+              <span class="text-sm font-medium text-neutral-700 dark:text-neutral-200">合計串本数</span>
+              <span class="text-3xl font-bold tabular-nums text-brand-500">
+                {{ totalSkewers }}<span class="text-sm text-neutral-400 dark:text-neutral-500 ml-1">本</span>
+              </span>
+            </div>
+            <div class="px-4 py-3 flex items-center justify-between">
+              <label class="text-sm text-neutral-700 dark:text-neutral-200">総売上（円）</label>
+              <input
+                v-model.number="form.totalSales"
+                type="number"
+                inputmode="numeric"
+                min="0"
+                class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+              />
+            </div>
             <!-- 総組数・総客数（実入力・必須） -->
             <div class="px-4 py-3 space-y-0.5 border-t-2 border-brand-500/20">
               <div class="flex items-center justify-between">
@@ -480,30 +571,6 @@ async function handleSubmit() {
               <p v-if="groupsGuestsErr" class="text-xs text-red-500 dark:text-red-400 text-right pt-0.5">
                 {{ groupsGuestsErr }}
               </p>
-            </div>
-
-            <div class="px-4 py-3 flex items-center justify-between">
-              <span class="text-sm text-neutral-700 dark:text-neutral-200">追加串</span>
-              <div class="flex items-center gap-1.5">
-                <StepperInput v-model="form.extraSkewers" />
-                <span class="text-sm text-neutral-500 dark:text-neutral-400 w-4">本</span>
-              </div>
-            </div>
-            <div class="px-4 py-3 flex items-center justify-between bg-brand-500/[0.04]">
-              <span class="text-sm font-medium text-neutral-700 dark:text-neutral-200">合計串本数</span>
-              <span class="text-3xl font-bold tabular-nums text-brand-500">
-                {{ totalSkewers }}<span class="text-sm text-neutral-400 dark:text-neutral-500 ml-1">本</span>
-              </span>
-            </div>
-            <div class="px-4 py-3 flex items-center justify-between">
-              <label class="text-sm text-neutral-700 dark:text-neutral-200">総売上（円）</label>
-              <input
-                v-model.number="form.totalSales"
-                type="number"
-                inputmode="numeric"
-                min="0"
-                class="w-32 text-right tabular-nums rounded-xl bg-white dark:bg-[#2A2A2A] border-edge dark:border-[#3A3A3A] text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
-              />
             </div>
             <div class="px-4 py-3 space-y-1">
               <div class="flex items-center justify-between">
@@ -584,7 +651,9 @@ async function handleSubmit() {
       @confirm="handleSubmit"
     >
       <ul class="space-y-1">
-        <li class="font-semibold text-neutral-700 dark:text-neutral-200">🏪 {{ currentTenantName }}</li>
+        <li class="flex items-center gap-1.5 font-semibold text-neutral-700 dark:text-neutral-200">
+          <Store :size="14" />{{ currentTenantName }}
+        </li>
         <li>焼師: {{ form.staffName }}</li>
         <li>コース: C{{ form.courseCasual }} / S{{ form.courseStandard }} / P{{ form.coursePremium }}</li>
         <li>総組数: {{ groupsCountStr }}組 / 総客数: {{ guestsCountStr }}名</li>
