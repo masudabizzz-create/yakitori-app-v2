@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Component } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useDailyLogStore } from '@/stores/dailyLog'
 import { supabase } from '@/lib/supabase'
 import { ROLE_RANK } from '@/lib/roleRank'
-import TenantSwitcher from '@/components/TenantSwitcher.vue'
 import VisitingBanner from '@/components/VisitingBanner.vue'
 import type { UserRole } from '@/types'
 import {
@@ -24,6 +23,7 @@ import {
   Snowflake,
   CloudLightning,
   LogOut,
+  Store,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -54,10 +54,30 @@ const roleLabel = computed(() =>
   auth.role ? (ROLE_LABELS[auth.role] ?? auth.role) : '',
 )
 
-/** manager 以上（rank >= 4）のみ店舗移動ボタンを表示 */
+/** manager 以上（rank >= 4）かつ複数テナントにアクセスできる場合のみ店舗移動ボタンを表示 */
 const showTenantSwitcher = computed(() =>
-  ROLE_RANK[auth.role ?? 'staff_both'] >= 4,
+  ROLE_RANK[auth.role ?? 'staff_both'] >= 4 && auth.accessibleTenants.length > 1,
 )
+
+// ─── インライン店舗切替メニュー ────────────────────────────────────
+const tenantMenuRef = ref<HTMLDivElement | null>(null)
+const showTenantMenu = ref(false)
+
+async function handleTenantSelect(tenantId: string) {
+  showTenantMenu.value = false
+  if (tenantId === auth.effectiveTenantId) return
+  await auth.enterTenant(tenantId)
+}
+
+function handleDocumentClick(e: MouseEvent) {
+  if (tenantMenuRef.value && !tenantMenuRef.value.contains(e.target as Node)) {
+    showTenantMenu.value = false
+  }
+}
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick)
+})
 
 // ─── テナント名 ───────────────────────────────────────────────────
 const currentTenantName = computed(() =>
@@ -191,6 +211,9 @@ onMounted(() => {
   const tenantId = auth.effectiveTenantId
   if (!tenantId) return
 
+  // ドキュメントクリックで店舗メニューを閉じる
+  document.addEventListener('click', handleDocumentClick)
+
   // 最新ログ取得（fire-and-forget）
   dailyLogStore.fetchLatest()
 
@@ -271,7 +294,7 @@ async function handleLogout() {
     >
       <div class="max-w-lg mx-auto space-y-4">
 
-        <!-- 1行目: アプリアイコン ＋ アプリ名 ＋ テナント名 ＋ 店舗移動ボタン -->
+        <!-- 1行目: アプリアイコン ＋ アプリ名 ＋ テナント名 -->
         <div class="flex items-center gap-3">
           <img
             :src="iconSrc"
@@ -283,10 +306,6 @@ async function handleLogout() {
             <p class="text-base font-bold text-white leading-tight truncate mt-0.5">
               {{ currentTenantName }}
             </p>
-          </div>
-          <!-- 店舗移動ボタン: manager 以上のみ。TenantSwitcher の canSwitch 判定を流用 -->
-          <div v-if="showTenantSwitcher" class="shrink-0">
-            <TenantSwitcher />
           </div>
         </div>
 
@@ -327,8 +346,49 @@ async function handleLogout() {
           </div>
         </div>
 
-        <!-- ログアウト -->
-        <div class="flex justify-end pt-0.5">
+        <!-- 下行: 店舗切替（manager以上・複数テナント時のみ）＋ログアウト -->
+        <div class="flex justify-end items-center gap-2 pt-0.5">
+          <!-- 店舗切替ボタン -->
+          <div v-if="showTenantSwitcher" ref="tenantMenuRef" class="relative">
+            <button
+              class="
+                flex items-center gap-1.5 text-xs font-medium
+                bg-brand-50 text-brand-700
+                px-3 py-1.5 rounded-xl transition-colors active:scale-95
+                hover:bg-white
+              "
+              @click.stop="showTenantMenu = !showTenantMenu"
+            >
+              <Store :size="13" />
+              店舗切替
+            </button>
+            <!-- ドロップダウン -->
+            <div
+              v-if="showTenantMenu"
+              class="
+                absolute right-0 bottom-full mb-1.5 z-50
+                bg-white dark:bg-neutral-800
+                border border-edge dark:border-edge-dark
+                rounded-xl shadow-lg overflow-hidden min-w-[9rem]
+              "
+            >
+              <button
+                v-for="t in auth.accessibleTenants"
+                :key="t.id"
+                class="
+                  w-full text-left px-3.5 py-2.5 text-sm
+                  text-neutral-800 dark:text-neutral-100
+                  hover:bg-brand-50 dark:hover:bg-brand-500/20
+                  transition-colors
+                "
+                :class="t.id === auth.effectiveTenantId ? 'font-semibold text-brand-700 dark:text-brand-300' : ''"
+                @click="handleTenantSelect(t.id)"
+              >
+                {{ t.name }}
+              </button>
+            </div>
+          </div>
+          <!-- ログアウト -->
           <button
             class="
               flex items-center gap-1.5 text-xs text-white/70 hover:text-white
