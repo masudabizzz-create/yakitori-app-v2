@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onUnmounted } from 'vue'
+import { Check, X } from 'lucide-vue-next'
 import {
   formatPrepAmount,
   formatStockDisplay,
@@ -12,6 +13,8 @@ const props = defineProps<{
   completed?: boolean
   /** タイマー機能の有効フラグ（2タップ方式） */
   timerEnabled?: boolean
+  /** コンパクト表示フラグ（仕込み不要品目用） */
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -46,7 +49,7 @@ function clearTick() {
   if (tickTimer !== null) { clearInterval(tickTimer); tickTimer = null }
 }
 
-/** ✓ / 完了ボタンをタップ */
+/** 完了ボタンをタップ */
 function onCompleteClick() {
   if (props.completed || !needsPrep.value) return
 
@@ -74,7 +77,7 @@ function onCompleteClick() {
   }
 }
 
-/** ✕ボタン: タイマーをキャンセルして未完了に戻す */
+/** キャンセルボタン: タイマーをキャンセルして未完了に戻す */
 function onCancelTimer() {
   clearTick()
   timing.value = false
@@ -85,20 +88,31 @@ onUnmounted(clearTick)
 </script>
 
 <template>
+  <!-- compact(仕込みなし)は高さを詰めて視覚的に格下げ -->
   <div
-    class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3 flex items-center gap-3 transition-opacity"
+    class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl flex items-center gap-3 transition-opacity"
     :class="[
+      compact ? 'px-4 py-1.5' : 'px-4 py-3',
       needsPrep && !completed ? 'border-l-4 border-l-brand-500' : '',
       completed ? 'opacity-40' : '',
     ]"
   >
     <!-- 左: 串情報（flex-1 min-w-0 で残りスペースを使い切る） -->
-    <div class="flex-1 min-w-0 space-y-0.5">
-      <p class="font-semibold text-sm leading-snug text-neutral-900 dark:text-neutral-50 break-keep">
+    <div class="flex-1 min-w-0" :class="compact ? '' : 'space-y-0.5'">
+      <p
+        class="leading-snug break-keep"
+        :class="compact
+          ? 'text-xs font-normal text-neutral-400 dark:text-neutral-500 truncate'
+          : 'font-semibold text-sm text-neutral-900 dark:text-neutral-50'"
+      >
         {{ result.name }}
         <span v-if="completed" class="ml-1 text-xs text-green-500 font-normal">✓ 完了</span>
       </p>
-      <p class="text-xs text-neutral-400 dark:text-neutral-500 flex items-center gap-1 flex-wrap">
+      <!-- 通常行のみカテゴリ・在庫を表示 -->
+      <p
+        v-if="!compact"
+        class="text-xs text-neutral-400 dark:text-neutral-500 flex items-center gap-1 flex-wrap"
+      >
         <span class="shrink-0">{{ result.category }}</span>
         <span class="opacity-40">·</span>
         <span class="shrink-0">在庫 {{ stockText }}</span>
@@ -114,7 +128,9 @@ onUnmounted(clearTick)
         class="font-bold tabular-nums text-right whitespace-nowrap"
         :class="needsPrep && !completed
           ? 'text-brand-500 text-xl'
-          : 'text-neutral-300 dark:text-neutral-600 text-sm'"
+          : compact
+            ? 'text-[10px] text-neutral-400 dark:text-neutral-500'
+            : 'text-neutral-300 dark:text-neutral-600 text-sm'"
       >
         {{ prepText }}
       </p>
@@ -134,21 +150,23 @@ onUnmounted(clearTick)
           </button>
           <button
             type="button"
-            class="w-8 h-8 rounded-lg text-neutral-400 dark:text-neutral-500 text-sm flex items-center justify-center active:scale-90 transition-transform hover:bg-neutral-100 dark:hover:bg-neutral-700"
+            class="w-8 h-8 rounded-lg text-neutral-400 dark:text-neutral-500 flex items-center justify-center active:scale-90 transition-transform hover:bg-neutral-100 dark:hover:bg-neutral-700"
+            aria-label="タイマーをキャンセル"
             @click="onCancelTimer"
           >
-            ✕
+            <X :size="16" />
           </button>
         </template>
 
-        <!-- 通常: ✓ボタン（タイマーON時は1回目タップでタイマー開始） -->
+        <!-- 通常: 完了ボタン（タイマーON時は1回目タップでタイマー開始） -->
         <button
           v-else
           type="button"
-          class="w-11 h-11 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 text-brand-500 text-2xl flex items-center justify-center active:scale-90 transition-transform"
+          class="w-11 h-11 rounded-xl bg-brand-500/10 dark:bg-brand-500/20 text-brand-500 flex items-center justify-center active:scale-90 transition-transform"
+          aria-label="仕込み完了"
           @click="onCompleteClick"
         >
-          ✓
+          <Check :size="22" />
         </button>
       </template>
 

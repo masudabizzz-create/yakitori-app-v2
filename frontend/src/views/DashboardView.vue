@@ -6,12 +6,22 @@ import { useDailyLogStore } from '@/stores/dailyLog'
 import { useAuthStore } from '@/stores/auth'
 import { usePrepLogsStore } from '@/stores/prepLogs'
 import { calcPrep, type PrepResult } from '@/composables/useInventoryCalc'
+import { ROLE_RANK } from '@/lib/roleRank'
 import { supabase } from '@/lib/supabase'
 import type { SkewerCategory } from '@/types'
 import CategoryTabs from '@/components/CategoryTabs.vue'
 import PrepCard from '@/components/PrepCard.vue'
-import TenantSwitcher from '@/components/TenantSwitcher.vue'
 import VisitingBanner from '@/components/VisitingBanner.vue'
+import {
+  ChevronLeft,
+  Store,
+  Timer,
+  ChefHat,
+  BedDouble,
+  CheckCircle2,
+  ClipboardList,
+  Plus,
+} from 'lucide-vue-next'
 
 const skewersStore = useSkewersStore()
 const settingsStore = useSettingsStore()
@@ -60,6 +70,27 @@ const timerEnabled = ref(
 function toggleTimer() {
   timerEnabled.value = !timerEnabled.value
   try { localStorage.setItem(TIMER_KEY, timerEnabled.value ? '1' : '0') } catch { /* ignore */ }
+}
+
+// ─── インライン店舗切替メニュー ────────────────────────────────────
+
+const showTenantSwitcher = computed(() =>
+  ROLE_RANK[auth.role ?? 'staff_both'] >= 4 && auth.accessibleTenants.length > 1,
+)
+
+const tenantMenuRef = ref<HTMLDivElement | null>(null)
+const showTenantMenu = ref(false)
+
+async function handleTenantSelect(tenantId: string) {
+  showTenantMenu.value = false
+  if (tenantId === auth.effectiveTenantId) return
+  await auth.enterTenant(tenantId)
+}
+
+function handleDocumentClick(e: MouseEvent) {
+  if (tenantMenuRef.value && !tenantMenuRef.value.contains(e.target as Node)) {
+    showTenantMenu.value = false
+  }
 }
 
 // ─── Realtime ────────────────────────────────────────────────
@@ -269,6 +300,7 @@ async function submitExtraPrep() {
 // ─── マウント ─────────────────────────────────────────────────
 
 onMounted(async () => {
+  document.addEventListener('click', handleDocumentClick)
   loading.value = true
   loadError.value = ''
   const tenantId = auth.effectiveTenantId
@@ -339,6 +371,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', handleDocumentClick)
   if (realtimeChannel) {
     supabase.removeChannel(realtimeChannel)
     realtimeChannel = null
@@ -351,27 +384,70 @@ onUnmounted(() => {
     <!-- ヘッダー -->
     <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
       <VisitingBanner />
-      <!-- タイトル行（pr-14 でテーマ切替ボタンとの重なりを回避） -->
-      <div class="max-w-lg mx-auto px-4 pt-3 pb-1 pr-14 flex items-center gap-2">
-        <router-link to="/" class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm shrink-0">‹ ホーム</router-link>
-        <h1 class="text-base font-semibold text-neutral-900 dark:text-neutral-50 truncate">仕込みダッシュボード</h1>
+      <!-- タイトル行 -->
+      <div class="max-w-lg mx-auto px-4 pt-3 pb-1 flex items-center gap-2">
+        <router-link
+          to="/"
+          class="flex items-center gap-0.5 text-sm text-neutral-400 dark:text-neutral-500
+                 hover:text-neutral-600 dark:hover:text-neutral-300 shrink-0"
+        >
+          <ChevronLeft :size="16" />ホーム
+        </router-link>
+        <h1 class="text-base font-semibold text-neutral-900 dark:text-neutral-50 truncate flex-1">仕込みダッシュボード</h1>
       </div>
       <!-- 操作行: 接続状態 + タイマー + 店舗切り替え -->
       <div class="max-w-lg mx-auto px-4 pb-2.5 flex items-center gap-2">
         <span class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass"></span>
         <span class="text-xs shrink-0" :class="statusTextClass">{{ statusLabel }}</span>
         <div class="ml-auto flex items-center gap-2">
+          <!-- タイマートグル -->
           <button
             type="button"
-            class="text-xs px-2 py-1.5 rounded-lg border transition-colors shrink-0"
+            class="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg border transition-colors shrink-0"
             :class="timerEnabled
               ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
               : 'text-neutral-400 dark:text-neutral-500 border-edge dark:border-edge-dark'"
             @click="toggleTimer"
           >
-            ⏱ {{ timerEnabled ? 'ON' : 'OFF' }}
+            <Timer :size="12" />
+            {{ timerEnabled ? 'ON' : 'OFF' }}
           </button>
-          <TenantSwitcher />
+          <!-- 店舗切替（manager以上・複数テナント時のみ） -->
+          <div v-if="showTenantSwitcher" ref="tenantMenuRef" class="relative shrink-0">
+            <button
+              class="flex items-center gap-1.5 text-xs font-medium
+                     bg-brand-50 text-brand-700
+                     px-3 py-1.5 rounded-xl transition-colors active:scale-95
+                     hover:bg-brand-100 dark:bg-brand-500/20 dark:text-brand-300 dark:hover:bg-brand-500/30"
+              @click.stop="showTenantMenu = !showTenantMenu"
+            >
+              <Store :size="13" />
+              店舗切替
+            </button>
+            <!-- ドロップダウン -->
+            <div
+              v-if="showTenantMenu"
+              class="absolute right-0 top-full mt-1.5 z-50
+                     bg-white dark:bg-neutral-800
+                     border border-edge dark:border-edge-dark
+                     rounded-xl shadow-lg overflow-hidden min-w-[9rem]"
+            >
+              <button
+                v-for="t in auth.accessibleTenants"
+                :key="t.id"
+                class="w-full text-left px-3.5 py-2.5 text-sm
+                       text-neutral-800 dark:text-neutral-100
+                       hover:bg-brand-50 dark:hover:bg-brand-500/20
+                       transition-colors"
+                :class="t.id === auth.effectiveTenantId
+                  ? 'font-semibold text-brand-700 dark:text-brand-300'
+                  : ''"
+                @click="handleTenantSelect(t.id)"
+              >
+                {{ t.name }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -388,7 +464,7 @@ onUnmounted(() => {
         v-else-if="!dailyLogStore.latestLog"
         class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-6 py-12 text-center space-y-3"
       >
-        <p class="text-4xl">📋</p>
+        <ClipboardList :size="40" class="mx-auto text-neutral-300 dark:text-neutral-600" />
         <p class="text-sm text-neutral-500 dark:text-neutral-400">まだ営業データがありません</p>
         <router-link
           to="/input"
@@ -404,17 +480,21 @@ onUnmounted(() => {
           <p class="text-xs text-neutral-400 dark:text-neutral-500">
             最終入力 {{ businessDate ? formatMd(businessDate) : '—' }} の記録より
           </p>
-          <p class="text-2xl font-bold text-neutral-900 dark:text-neutral-50 mt-1">
-            🔪 {{ nextDate ? formatMd(nextDate) : '' }} の仕込み
-          </p>
+          <div class="flex items-center gap-2 mt-1">
+            <ChefHat :size="22" class="text-brand-600 dark:text-brand-400 shrink-0" />
+            <p class="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+              {{ nextDate ? formatMd(nextDate) : '' }} の仕込み
+            </p>
+          </div>
         </section>
 
         <!-- 日曜（休業）バナー -->
         <div
           v-if="nextIsSunday"
-          class="bg-brand-500/15 text-brand-600 dark:text-brand-400 border border-brand-500/25 rounded-2xl px-4 py-3 text-sm font-semibold"
+          class="flex items-center gap-2 bg-brand-500/15 text-brand-600 dark:text-brand-400 border border-brand-500/25 rounded-2xl px-4 py-3 text-sm font-semibold"
         >
-          🛌 明日は日曜日（休業）です
+          <BedDouble :size="16" class="shrink-0" />
+          明日は日曜日（休業）です
         </div>
 
         <!-- 進捗バー + カウンター -->
@@ -448,7 +528,7 @@ onUnmounted(() => {
           <!-- 合計本数 + 残件数 -->
           <div class="flex items-center justify-between text-sm">
             <p class="text-neutral-500 dark:text-neutral-400">
-              🔪 仕込みが必要な品目:
+              仕込みが必要な品目:
               <span
                 class="font-bold ml-1"
                 :class="pendingCount === 0
@@ -462,7 +542,7 @@ onUnmounted(() => {
               v-if="prepLogsStore.totalStickCount > 0"
               class="text-neutral-700 dark:text-neutral-200 font-semibold tabular-nums"
             >
-              🍢 計 {{ prepLogsStore.totalStickCount.toLocaleString() }}本
+              計 {{ prepLogsStore.totalStickCount.toLocaleString() }}本
             </p>
           </div>
         </section>
@@ -472,7 +552,7 @@ onUnmounted(() => {
           v-else
           class="rounded-2xl px-4 py-3 text-sm font-medium border bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20"
         >
-          ✅ 仕込みは不要です
+          <CheckCircle2 :size="16" class="inline-block mr-1.5 shrink-0" />仕込みは不要です
         </div>
 
         <!-- エラー表示 -->
@@ -491,6 +571,7 @@ onUnmounted(() => {
             :result="r"
             :completed="prepLogsStore.completedSkewerIds.has(r.skewerId)"
             :timer-enabled="timerEnabled"
+            :compact="r.prepAmount === 0"
             @complete="(dur) => handleComplete(r, dur)"
             @undo="handleUndo(r)"
           />
@@ -508,10 +589,10 @@ onUnmounted(() => {
     >
       <button
         type="button"
-        class="px-6 py-3.5 bg-neutral-800 dark:bg-neutral-700 hover:bg-neutral-700 dark:hover:bg-neutral-600 text-white text-sm font-semibold rounded-2xl shadow-lg active:scale-95 transition-transform flex items-center gap-2"
+        class="px-6 py-3.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-2xl shadow-lg active:scale-95 transition-transform flex items-center gap-2"
         @click="showExtraModal = true; extraError = ''"
       >
-        ＋ 追加仕込みを記録
+        <Plus :size="16" />追加仕込みを記録
       </button>
     </div>
 
