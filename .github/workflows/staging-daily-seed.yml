@@ -1,0 +1,31 @@
+name: Staging Daily Seed
+
+on:
+  # 毎日 JST 23:30 に自動実行（UTC 14:30）
+  schedule:
+    - cron: '30 14 * * *'
+  # 手動実行も可能（GitHub Actions 画面から「Run workflow」で即時テスト）
+  workflow_dispatch:
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm install @supabase/supabase-js
+
+      - name: Run daily seed
+        working-directory: scripts
+        run: node staging-daily-seed.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL_STAGING }}
+          SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY_STAGING }}
+          STAGING_TEST_EMAIL: ${{ secrets.STAGING_TEST_EMAIL }}
+          STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
