@@ -51,6 +51,8 @@ export interface SubmitContext {
   perCourse: { casual: number; standard: number; premium: number }
   /** 基準日時（省略時は現在時刻） */
   now?: Date
+  /** 確定した営業日 YYYY-MM-DD（resolveBusinessDate で決定）。省略時は now から算出 */
+  logDate?: string
 }
 
 export interface DailyLogPayload {
@@ -65,6 +67,12 @@ export interface DailyLogPayload {
 export function buildSubmitPayload(form: DailyInputForm, ctx: SubmitContext): DailyLogPayload {
   const now = ctx.now ?? new Date()
 
+  // 営業日の基準 Date（曜日計算に使用）
+  // logDate 指定時はその日付をローカル正午で解釈（UTC midnight ズレ防止）
+  const businessDate: Date = ctx.logDate
+    ? new Date(ctx.logDate.replace(/-/g, '/') + ' 12:00:00')
+    : now
+
   const totalSkewers = calcTotalSkewers(
     {
       casual: form.courseCasual,
@@ -78,8 +86,8 @@ export function buildSubmitPayload(form: DailyInputForm, ctx: SubmitContext): Da
 
   const logRow: DailyLogRow = {
     tenant_id: ctx.tenantId,
-    log_date: formatDateYmd(now),
-    day_of_week: DOW_NAMES[now.getDay()],
+    log_date: ctx.logDate ?? formatDateYmd(now),
+    day_of_week: DOW_NAMES[businessDate.getDay()],
     staff_name: form.staffName,
     recorded_at: now.toISOString(),
     course_casual: form.courseCasual,

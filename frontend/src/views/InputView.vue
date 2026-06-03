@@ -7,6 +7,8 @@ import { useSettingsStore } from '@/stores/settings'
 import { useDailyLogStore } from '@/stores/dailyLog'
 import { useUsersStore } from '@/stores/users'
 import { calcPrep, calcTotalSkewers } from '@/composables/useInventoryCalc'
+import { resolveBusinessDate, formatBusinessDateLabel } from '@/composables/useBusinessDate'
+import type { BusinessDateResult } from '@/composables/useBusinessDate'
 import { ROLE_RANK } from '@/lib/roleRank'
 import { notifyDailyReport } from '@/composables/useLineNotify'
 import StepperInput from '@/components/StepperInput.vue'
@@ -35,6 +37,12 @@ const showConfirm = ref(false)
 const draftRestored = ref(false)
 const lineWarning = ref('')
 const savedOk = ref(false)
+
+// ─── 営業日判定 ───────────────────────────────────────────────
+/** resolveBusinessDate の結果（openConfirm 時に確定） */
+const businessDateResult = ref<BusinessDateResult | null>(null)
+/** 確定した営業日 YYYY-MM-DD（自動割り当て or ユーザー選択） */
+const resolvedLogDate = ref<string>('')
 
 /**
  * ドリンク比率の文字列バッファ（小数点入力対応）。
@@ -265,9 +273,13 @@ const groupsGuestsRef = ref<HTMLDivElement | null>(null)
  * エラーがある場合は該当フィールドへスクロールして返す。
  */
 function openConfirm() {
-  // エラー表示をリセットしてモーダルを開く（バリデーションは「送信する」押下時に実施）
+  // エラー表示をリセット
   groupsGuestsErr.value = ''
   drinkRatioErr.value = ''
+  // 営業日を判定してモーダルに反映
+  const result = resolveBusinessDate(new Date())
+  businessDateResult.value = result
+  resolvedLogDate.value = result.date   // 自動割り当て or デフォルト選択（今日）
   showConfirm.value = true
 }
 
@@ -306,6 +318,7 @@ async function handleSubmit() {
           standard: s.course_standard_skewers,
           premium: s.course_premium_skewers,
         },
+        logDate: resolvedLogDate.value || undefined,
       },
     )
     savedOk.value = true
@@ -674,6 +687,37 @@ async function handleSubmit() {
       @cancel="showConfirm = false"
       @confirm="handleSubmit"
     >
+      <!-- ── 営業日（自動表示 or 2択選択） ── -->
+      <div v-if="businessDateResult" class="mb-3">
+        <!-- 自動割り当て: 表示のみ -->
+        <template v-if="!businessDateResult.needsConfirm">
+          <div class="flex items-center justify-between rounded-xl bg-brand-500/10 dark:bg-brand-500/20 px-3 py-2">
+            <span class="text-xs text-neutral-500 dark:text-neutral-400">営業日</span>
+            <span class="font-bold text-brand-500">{{ formatBusinessDateLabel(resolvedLogDate) }}</span>
+          </div>
+        </template>
+        <!-- 確認必要: 2択ボタン -->
+        <template v-else>
+          <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-2">どちらの営業分ですか？</p>
+          <div class="flex gap-2">
+            <button
+              v-for="(candidate, i) in businessDateResult.candidates"
+              :key="candidate"
+              type="button"
+              class="flex-1 rounded-xl py-2.5 text-sm font-semibold transition-colors active:scale-95"
+              :class="resolvedLogDate === candidate
+                ? 'bg-brand-500 text-white'
+                : 'bg-neutral-100 dark:bg-[#2A2A2A] text-neutral-700 dark:text-neutral-200'"
+              @click="resolvedLogDate = candidate"
+            >
+              <span class="block text-[10px] font-normal leading-tight mb-0.5 opacity-70">{{ i === 0 ? '今日' : '前日' }}</span>
+              {{ formatBusinessDateLabel(candidate) }}
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <!-- ── 送信内容サマリー ── -->
       <ul class="space-y-1">
         <li class="flex items-center gap-1.5 font-semibold text-neutral-700 dark:text-neutral-200">
           <Store :size="14" />{{ currentTenantName }}
