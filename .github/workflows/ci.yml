@@ -78,8 +78,15 @@ jobs:
       - name: Apply migrations to production
         run: |
           supabase link --project-ref mmquefvklrxjcmoxgvjb
+          # 001〜021 は本番DBに手動適用済み。022以降のみ適用する。
           for f in supabase/migrations/*.sql; do
-            echo "Applying: $f"
+            fname=$(basename "$f")
+            num=$(echo "$fname" | grep -oE '^[0-9]+' | sed 's/^0*//')
+            if [ "${num:-0}" -le 21 ]; then
+              echo "Skip (already applied): $fname"
+              continue
+            fi
+            echo "Applying: $fname"
             supabase db query --linked -f "$f"
           done
           supabase db query --linked "SELECT pg_notify('pgrst', 'reload schema');"
