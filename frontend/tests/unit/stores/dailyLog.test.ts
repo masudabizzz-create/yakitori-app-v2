@@ -121,6 +121,65 @@ describe('buildSubmitPayload', () => {
 })
 
 // ============================================================
+// buildSubmitPayload - logDate オプション
+// ============================================================
+
+describe('buildSubmitPayload - logDate 指定', () => {
+  const skewers: Skewer[] = [
+    makeSkewer('reg', 'レギュラー'),
+  ]
+
+  it('logDate を指定するとその日付が log_date に使われる', () => {
+    const ctx = {
+      tenantId: 't1',
+      skewers,
+      perCourse: { casual: 10, standard: 15, premium: 20 },
+      now: new Date(2026, 5, 3, 1, 30, 0), // 2026-06-03 01:30（深夜）
+      logDate: '2026-06-02', // 前日を明示指定
+    }
+    const { logRow } = buildSubmitPayload(baseForm, ctx)
+    expect(logRow.log_date).toBe('2026-06-02')
+  })
+
+  it('logDate に対応する曜日が day_of_week に設定される', () => {
+    const ctx = {
+      tenantId: 't1',
+      skewers,
+      perCourse: { casual: 10, standard: 15, premium: 20 },
+      now: new Date(2026, 5, 3, 1, 30, 0), // 水曜深夜
+      logDate: '2026-06-02', // 火曜
+    }
+    const { logRow } = buildSubmitPayload(baseForm, ctx)
+    expect(logRow.day_of_week).toBe('火曜')
+  })
+
+  it('logDate 省略時は now の日付が log_date に使われる', () => {
+    const ctx = {
+      tenantId: 't1',
+      skewers,
+      perCourse: { casual: 10, standard: 15, premium: 20 },
+      now: new Date(2026, 5, 3, 22, 0, 0), // 2026-06-03 22:00 水曜
+    }
+    const { logRow } = buildSubmitPayload(baseForm, ctx)
+    expect(logRow.log_date).toBe('2026-06-03')
+    expect(logRow.day_of_week).toBe('水曜')
+  })
+
+  it('logDate に月初（月跨ぎ前日）を指定できる', () => {
+    const ctx = {
+      tenantId: 't1',
+      skewers,
+      perCourse: { casual: 10, standard: 15, premium: 20 },
+      now: new Date(2026, 6, 1, 0, 30, 0), // 2026-07-01 00:30（深夜）
+      logDate: '2026-06-30', // 前月末
+    }
+    const { logRow } = buildSubmitPayload(baseForm, ctx)
+    expect(logRow.log_date).toBe('2026-06-30')
+    expect(logRow.day_of_week).toBe('火曜')
+  })
+})
+
+// ============================================================
 // localStorage 下書き
 // ============================================================
 
