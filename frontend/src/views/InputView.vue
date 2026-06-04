@@ -273,9 +273,15 @@ const groupsGuestsRef = ref<HTMLDivElement | null>(null)
  * エラーがある場合は該当フィールドへスクロールして返す。
  */
 function openConfirm() {
-  // エラー表示をリセット
-  groupsGuestsErr.value = ''
-  drinkRatioErr.value = ''
+  // バリデーション先行実行（失敗時はモーダルを開かず、エラー箇所へスクロール）
+  const groupsOk = validateGroupsGuests()
+  const drinkOk = validateDrinkRatio()
+  if (!groupsOk || !drinkOk) {
+    if (!groupsOk) {
+      nextTick(() => groupsGuestsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+    }
+    return
+  }
   // 営業日を判定してモーダルに反映
   const result = resolveBusinessDate(new Date())
   businessDateResult.value = result
@@ -291,12 +297,12 @@ function todayYmd(): string {
 
 async function handleSubmit() {
   showConfirm.value = false
+  // openConfirm() でバリデーション済みだが念のため再確認
   const groupsOk = validateGroupsGuests()
   const drinkOk = validateDrinkRatio()
   if (!groupsOk || !drinkOk) {
-    if (!groupsOk) {
-      nextTick(() => groupsGuestsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
-    }
+    // どちらが失敗しても組数・客数フィールドへスクロール（最上位の必須項目）
+    nextTick(() => groupsGuestsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
     return
   }
   submitting.value = true
