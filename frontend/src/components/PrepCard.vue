@@ -29,6 +29,21 @@ const prepText = computed(() => formatPrepAmount(props.result))
 const stockText = computed(() =>
   formatStockDisplay(props.result.category, props.result.stock),
 )
+/** 前日仕込みはアクション文字列が長いため専用スタイルを適用 */
+const isKombuItem = computed(() => props.result.category === '前日仕込み')
+
+const prepTextClass = computed(() => {
+  if (isKombuItem.value) {
+    // 前日仕込み: アクション文字列（例「昆布締めなし・直接串うち」）は短く折り返し
+    return needsPrep.value && !props.completed
+      ? 'text-[11px] font-semibold text-brand-500 leading-tight text-right max-w-[7rem] break-keep'
+      : 'text-[10px] text-neutral-400 dark:text-neutral-500 leading-tight text-right max-w-[7rem] break-keep'
+  }
+  const base = 'font-bold tabular-nums text-right whitespace-nowrap'
+  if (needsPrep.value && !props.completed) return `${base} text-brand-500 text-xl`
+  if (props.compact) return `${base} text-[10px] text-neutral-400 dark:text-neutral-500`
+  return `${base} text-neutral-300 dark:text-neutral-600 text-sm`
+})
 
 // ─── 2タップタイマー ───────────────────────────────────────────
 // 長押し検出を廃止。1回目タップでタイマー開始、2回目タップで完了記録。
@@ -125,12 +140,7 @@ onUnmounted(clearTick)
       <!-- 仕込み量（タイマー計測中は非表示でスペースを確保） -->
       <p
         v-if="!timing"
-        class="font-bold tabular-nums text-right whitespace-nowrap"
-        :class="needsPrep && !completed
-          ? 'text-brand-500 text-xl'
-          : compact
-            ? 'text-[10px] text-neutral-400 dark:text-neutral-500'
-            : 'text-neutral-300 dark:text-neutral-600 text-sm'"
+        :class="prepTextClass"
       >
         {{ prepText }}
       </p>
