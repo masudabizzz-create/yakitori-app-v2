@@ -32,6 +32,7 @@ import {
   ClipboardList,
   TrendingUp,
 } from 'lucide-vue-next'
+import PeriodPicker from '@/components/PeriodPicker.vue'
 
 const router = useRouter()
 const dailyLogStore = useDailyLogStore()
@@ -57,6 +58,9 @@ function toggleRow(id: string) {
   next.has(id) ? next.delete(id) : next.add(id)
   expandedRows.value = next
 }
+
+/** 期間ピッカー表示状態 */
+const showPeriodPicker = ref(false)
 
 // ─── 期間計算 ─────────────────────────────────────────────────────
 const currentPeriod = computed(() => getPeriodRange(scope.value, offset.value))
@@ -323,9 +327,14 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
         >
           <ChevronLeft :size="16" />
         </button>
-        <p class="flex-1 text-center text-sm font-semibold text-neutral-800 dark:text-neutral-100 truncate">
+        <button
+          type="button"
+          class="flex-1 text-center text-sm font-semibold text-neutral-800 dark:text-neutral-100 truncate
+                 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg py-1.5 transition-colors"
+          @click="showPeriodPicker = true"
+        >
           {{ currentPeriod.label }}
-        </p>
+        </button>
         <button
           type="button"
           class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
@@ -338,6 +347,15 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
           <ChevronRight :size="16" />
         </button>
       </div>
+
+      <!-- 期間ピッカー -->
+      <PeriodPicker
+        :scope="scope"
+        v-model="offset"
+        :open="showPeriodPicker"
+        @cancel="showPeriodPicker = false"
+        @update:modelValue="showPeriodPicker = false"
+      />
 
       <!-- ローディング -->
       <p v-if="loading" class="text-center text-neutral-400 dark:text-neutral-500 py-12">

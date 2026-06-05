@@ -23,7 +23,8 @@ import {
   type Scope,
 } from '@/composables/usePeriodRange'
 import type { DailyLog } from '@/types'
-import { ChevronLeft } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import PeriodPicker from '@/components/PeriodPicker.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -35,6 +36,10 @@ const auth = useAuthStore()
 const scope = ref<Scope>((route.query.scope as Scope) ?? 'week')
 const offset = ref(Number(route.query.offset ?? 0))
 
+// ─── 比較対象のオフセット（デフォルトは自動計算、ユーザーが変更可能）──
+const prevOffset = ref<number | null>(null)  // null = 自動（前期）
+const yoyOffset = ref<number | null>(null)   // null = 自動（昨対）
+
 const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
 
 // ─── ローカルデータ状態 ───────────────────────────────────────────
@@ -45,10 +50,38 @@ const prevLogs    = ref<DailyLog[]>([])
 const yoyLogs     = ref<DailyLog[]>([])
 const trendLogs   = ref<DailyLog[]>([])
 
+/** 期間ピッカー表示状態 */
+const showPeriodPicker = ref(false)
+const showPrevPicker = ref(false)
+const showYoyPicker = ref(false)
+
 // ─── 期間 ─────────────────────────────────────────────────────────
 const currentPeriod = computed(() => getPeriodRange(scope.value, offset.value))
-const prevPeriod    = computed(() => getPrevPeriod(scope.value, offset.value))
-const yoyPeriod     = computed(() => getYoyPeriod(scope.value, offset.value))
+
+// 前期・昨対のデフォルトオフセット計算
+const defaultPrevOffset = computed(() => {
+  // day = +7, week = +1, month = +1, quarter = +1, year = +1
+  return scope.value === 'day' ? offset.value + 7 : offset.value + 1
+})
+
+const defaultYoyOffset = computed(() => {
+  // month = +12, quarter = +4, それ以外は null（昨対なし）
+  if (scope.value === 'month') return offset.value + 12
+  if (scope.value === 'quarter') return offset.value + 4
+  return null
+})
+
+// 前期・昨対はユーザー指定優先、なければ自動計算
+const prevPeriod = computed(() => {
+  const off = prevOffset.value ?? defaultPrevOffset.value
+  return getPeriodRange(scope.value, off)
+})
+
+const yoyPeriod = computed(() => {
+  const off = yoyOffset.value ?? defaultYoyOffset.value
+  if (off === null) return null
+  return getPeriodRange(scope.value, off)
+})
 
 const isInProgress = computed(() => currentPeriod.value.to >= jstTodayYmd())
 
@@ -118,6 +151,13 @@ async function loadData() {
 
 onMounted(loadData)
 watch([scope, offset], loadData)
+watch([prevOffset, yoyOffset], loadData)
+
+// スコープ変更時は比較対象オフセットをリセット
+watch(scope, () => {
+  prevOffset.value = null
+  yoyOffset.value = null
+})
 
 // ─── ユーティリティ ────────────────────────────────────────────────
 function pctClass(item: CompareItem | null | undefined) {
@@ -270,30 +310,148 @@ const mainRows = computed<CompareRow[]>(() => {
     </header>
 
     <main class="max-w-lg mx-auto px-4 py-4 space-y-4">
+      <!-- 期間ナビ -->
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="w-8 h-8 rounded-lg flex items-center justify-center text-neutral-500 dark:text-neutral-400
+                 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          @click="offset++"
+        >
+          <ChevronLeft :size="16" />
+        </button>
+        <button
+          type="button"
+          class="flex-1 text-center text-sm font-semibold text-neutral-800 dark:text-neutral-100 truncate
+                 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg py-1.5 transition-colors"
+          @click="showPeriodPicker = true"
+        >
+          {{ currentPeriod.label }}
+        </button>
+        <button
+          type="button"
+          class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+          :class="offset > 0
+            ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+            : 'text-neutral-200 dark:text-neutral-700 cursor-not-allowed'"
+          :disabled="offset === 0"
+          @click="if (offset > 0) offset--"
+        >
+          <ChevronRight :size="16" />
+        </button>
+      </div>
+
+      <!-- 期間ピッカー -->
+      <PeriodPicker
+        :scope="scope"
+        v-model="offset"
+        :open="showPeriodPicker"
+        @cancel="showPeriodPicker = false"
+        @update:modelValue="showPeriodPicker = false"
+      />
+
       <!-- 期間ヘッダー -->
-      <div class="bg-brand-500/10 dark:bg-brand-500/20 border border-brand-500/20 rounded-2xl px-4 py-3">
-        <div class="grid grid-cols-3 gap-2 text-center text-xs">
-          <div>
-            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">今期</p>
-            <p class="font-semibold text-brand-600 dark:text-brand-400 leading-tight">{{ currentPeriod.label }}</p>
-            <p v-if="isInProgress" class="text-[10px] text-brand-400 dark:text-brand-500 mt-0.5">進行中（{{ currentLogs.length }}日）</p>
-          </div>
-          <div>
-            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">前期</p>
-            <p class="font-medium text-neutral-600 dark:text-neutral-300 leading-tight">{{ prevPeriod.label }}</p>
-            <p v-if="isInProgress && sufficiency.hasSufficientPrev" class="text-[10px] text-neutral-400 mt-0.5">{{ alignedPrevLogs.length }}日分</p>
-          </div>
-          <div>
-            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">昨対</p>
-            <p v-if="yoyPeriod" class="font-medium text-neutral-600 dark:text-neutral-300 leading-tight">{{ yoyPeriod.label }}</p>
-            <p v-else class="text-neutral-300 dark:text-neutral-600">—</p>
-            <p v-if="isInProgress && yoyPeriod && sufficiency.hasSufficientYoy" class="text-[10px] text-neutral-400 mt-0.5">{{ alignedYoyLogs.length }}日分</p>
-          </div>
+      <div class="bg-brand-500/10 dark:bg-brand-500/20 border border-brand-500/20 rounded-2xl px-4 py-3 space-y-3">
+        <!-- 今期（固定） -->
+        <div class="text-center">
+          <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">今期</p>
+          <p class="font-semibold text-brand-600 dark:text-brand-400 leading-tight">{{ currentPeriod.label }}</p>
+          <p v-if="isInProgress" class="text-[10px] text-brand-400 dark:text-brand-500 mt-0.5">進行中（{{ currentLogs.length }}日）</p>
         </div>
-        <p v-if="isInProgress" class="mt-2 text-[10px] text-center text-brand-500 dark:text-brand-400">
-          ※ 進行中のため前期・昨対も同経過日数で比較
+
+        <div class="border-t border-brand-500/20 pt-3 space-y-3">
+          <!-- 前期（選択可能） -->
+          <div class="flex items-center gap-2">
+            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 w-10 shrink-0">前期</p>
+            <button
+              type="button"
+              class="w-6 h-6 rounded flex items-center justify-center text-neutral-500 dark:text-neutral-400
+                     hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              @click="prevOffset = (prevOffset ?? defaultPrevOffset) + 1"
+            >
+              <ChevronLeft :size="14" />
+            </button>
+            <button
+              type="button"
+              class="flex-1 text-center text-xs font-medium text-neutral-600 dark:text-neutral-300 leading-tight
+                     hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded py-1 transition-colors"
+              @click="showPrevPicker = true"
+            >
+              {{ prevPeriod.label }}
+            </button>
+            <button
+              type="button"
+              class="w-6 h-6 rounded flex items-center justify-center transition-colors"
+              :class="(prevOffset ?? defaultPrevOffset) > 0
+                ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                : 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'"
+              :disabled="(prevOffset ?? defaultPrevOffset) === 0"
+              @click="if ((prevOffset ?? defaultPrevOffset) > 0) prevOffset = (prevOffset ?? defaultPrevOffset) - 1"
+            >
+              <ChevronRight :size="14" />
+            </button>
+          </div>
+          <p v-if="isInProgress && sufficiency.hasSufficientPrev" class="text-[10px] text-center text-neutral-400">{{ alignedPrevLogs.length }}日分で比較</p>
+
+          <!-- 昨対（選択可能、月・四半期のみ） -->
+          <template v-if="scope === 'month' || scope === 'quarter'">
+            <div class="flex items-center gap-2">
+              <p class="text-[10px] text-neutral-400 dark:text-neutral-500 w-10 shrink-0">昨対</p>
+              <button
+                type="button"
+                class="w-6 h-6 rounded flex items-center justify-center text-neutral-500 dark:text-neutral-400
+                       hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                @click="const step = scope === 'month' ? 12 : 4; yoyOffset = (yoyOffset ?? defaultYoyOffset) + step"
+              >
+                <ChevronLeft :size="14" />
+              </button>
+              <button
+                type="button"
+                class="flex-1 text-center text-xs font-medium text-neutral-600 dark:text-neutral-300 leading-tight
+                       hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded py-1 transition-colors"
+                @click="showYoyPicker = true"
+              >
+                {{ yoyPeriod?.label ?? '—' }}
+              </button>
+              <button
+                type="button"
+                class="w-6 h-6 rounded flex items-center justify-center transition-colors"
+                :class="(yoyOffset ?? defaultYoyOffset) > 0
+                  ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                  : 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'"
+                :disabled="(yoyOffset ?? defaultYoyOffset) === 0"
+                @click="const step = scope === 'month' ? 12 : 4; const base = yoyOffset ?? defaultYoyOffset; if (base > 0) yoyOffset = base - step"
+              >
+                <ChevronRight :size="14" />
+              </button>
+            </div>
+            <p v-if="isInProgress && yoyPeriod && sufficiency.hasSufficientYoy" class="text-[10px] text-center text-neutral-400">{{ alignedYoyLogs.length }}日分で比較</p>
+          </template>
+        </div>
+
+        <p v-if="isInProgress" class="text-[10px] text-center text-brand-500 dark:text-brand-400 border-t border-brand-500/20 pt-2">
+          ※ 進行中のため比較対象も同経過日数で算出
         </p>
       </div>
+
+      <!-- 前期ピッカー -->
+      <PeriodPicker
+        :scope="scope"
+        v-model="prevOffset"
+        :open="showPrevPicker"
+        @cancel="showPrevPicker = false"
+        @update:modelValue="showPrevPicker = false"
+      />
+
+      <!-- 昨対ピッカー（月・四半期のみ） -->
+      <PeriodPicker
+        v-if="scope === 'month' || scope === 'quarter'"
+        :scope="scope"
+        v-model="yoyOffset"
+        :open="showYoyPicker"
+        @cancel="showYoyPicker = false"
+        @update:modelValue="showYoyPicker = false"
+      />
 
       <!-- ローディング -->
       <p v-if="loading" class="text-center text-neutral-400 dark:text-neutral-500 py-12">読み込み中...</p>

@@ -41,10 +41,18 @@ function lastDayOfMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate()
 }
 
-/** YYYY-MM-DD の曜日を返す（0=日, 1=月, ..., 6=土） */
+/** YYYY-MM-DD の曜日を返す（0=日, 1=月, ..., 6=土）。Asia/Tokyo 基準。 */
 export function dowOf(ymd: string): number {
   const [y, m, d] = parseYmd(ymd)
-  return new Date(y, m - 1, d).getDay()
+  // Asia/Tokyo の曜日を取得
+  const date = new Date(Date.UTC(y, m - 1, d))
+  const dowStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short'
+  }).format(date)
+  // Sun=0, Mon=1, ..., Sat=6 に変換
+  const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  return dowMap[dowStr] ?? 0
 }
 
 /** YYYY-MM-DD に days を加算して新しい YYYY-MM-DD を返す */
@@ -75,8 +83,8 @@ export function getPeriodRange(scope: Scope, offset = 0, now: Date = new Date())
   switch (scope) {
     case 'day': {
       const date = addDays(today, -offset)
-      const [dy, dm, dd] = parseYmd(date)
-      const dow = new Date(dy, dm - 1, dd).getDay()
+      const [, dm, dd] = parseYmd(date)
+      const dow = dowOf(date)
       return { from: date, to: date, label: `${dm}/${dd}(${DOW_JA[dow]})` }
     }
 

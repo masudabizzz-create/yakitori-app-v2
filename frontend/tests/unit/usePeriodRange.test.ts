@@ -64,6 +64,15 @@ describe('dowOf', () => {
   it('2026-06-07 は日曜（0）', () => {
     expect(dowOf('2026-06-07')).toBe(0)
   })
+
+  // 曜日ズレ問題の確認：2026/5/25 は実カレンダーで月曜日
+  it('2026-05-25 は月曜（1）', () => {
+    expect(dowOf('2026-05-25')).toBe(1)
+  })
+
+  it('2026-05-31 は日曜（0）', () => {
+    expect(dowOf('2026-05-31')).toBe(0)
+  })
 })
 
 // ─── getPeriodRange ───────────────────────────────────────────────
@@ -121,6 +130,16 @@ describe('getPeriodRange - week', () => {
     const r = getPeriodRange('week', 1, thu)
     expect(r.from).toBe('2026-05-25')
     expect(r.to).toBe('2026-05-31')
+    expect(r.label).toBe('5/25〜5/31')
+  })
+
+  // 曜日ズレ問題の確認：5/25（月）〜5/31（日）の週
+  it('5/26（火）基準 offset=0 → 5/25〜5/31', () => {
+    const tue = utcDate(2026, 5, 26, 0) // 2026-05-26（火）
+    const r = getPeriodRange('week', 0, tue)
+    expect(r.from).toBe('2026-05-25')
+    expect(r.to).toBe('2026-05-31')
+    expect(r.label).toBe('5/25〜5/31')
   })
 
   it('月跨ぎ週: from と to が異なる月', () => {

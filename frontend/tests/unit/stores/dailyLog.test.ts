@@ -177,6 +177,33 @@ describe('buildSubmitPayload - logDate 指定', () => {
     expect(logRow.log_date).toBe('2026-06-30')
     expect(logRow.day_of_week).toBe('火曜')
   })
+
+  // 曜日ズレ問題の確認：2026-05-25 は実カレンダーで月曜日
+  it('logDate 2026-05-25 の曜日は月曜', () => {
+    const ctx = {
+      tenantId: 't1',
+      skewers,
+      perCourse: { casual: 10, standard: 15, premium: 20 },
+      now: new Date(),
+      logDate: '2026-05-25',
+    }
+    const { logRow } = buildSubmitPayload(baseForm, ctx)
+    expect(logRow.log_date).toBe('2026-05-25')
+    expect(logRow.day_of_week).toBe('月曜')
+  })
+
+  it('logDate 2026-05-31 の曜日は日曜', () => {
+    const ctx = {
+      tenantId: 't1',
+      skewers,
+      perCourse: { casual: 10, standard: 15, premium: 20 },
+      now: new Date(),
+      logDate: '2026-05-31',
+    }
+    const { logRow } = buildSubmitPayload(baseForm, ctx)
+    expect(logRow.log_date).toBe('2026-05-31')
+    expect(logRow.day_of_week).toBe('日曜')
+  })
 })
 
 // ============================================================
