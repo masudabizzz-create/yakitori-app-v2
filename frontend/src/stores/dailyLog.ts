@@ -236,6 +236,23 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
   }
 
   /**
+   * 指定テナントの指定期間のログを日付昇順で返す（ストア状態は変更しない）。
+   * 分析画面がスコープ別にデータを管理するための純粋フェッチ関数。
+   */
+  async function fetchByDateRange(tenantId: string, from: string, to: string): Promise<DailyLog[]> {
+    const { data, error } = await supabase
+      .from('daily_logs')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .gte('log_date', from)
+      .lte('log_date', to)
+      .order('log_date', { ascending: false })
+      .limit(2000)
+    if (error) throw new Error(error.message)
+    return (data ?? []) as DailyLog[]
+  }
+
+  /**
    * 指定した daily_log ID 群の在庫スナップショットを取得し、串ごとに集計する。
    * 分析画面の「串ランキング」で使用。副産物は除外する。
    */
@@ -325,6 +342,7 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
     submitDailyReport,
     fetchLatest,
     fetchRecentLogs,
+    fetchByDateRange,
     fetchSkewerStocks,
     saveDraft,
     loadDraft,

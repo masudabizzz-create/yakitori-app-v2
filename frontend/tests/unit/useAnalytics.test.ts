@@ -5,6 +5,8 @@ import {
   weekdayAvgSales,
   courseShares,
   calcRealCustomerMetrics,
+  calcSalesTrendLine,
+  calcSufficiency,
 } from '@/composables/useAnalytics'
 import type { DailyLog } from '@/types'
 
@@ -241,5 +243,146 @@ describe('calcRealCustomerMetrics', () => {
     const m = calcRealCustomerMetrics([])
     expect(m.sampleCount).toBe(0)
     expect(m.avgSpendPerGuest).toBe(0)
+  })
+})
+
+// ============================================================
+// calcSalesTrendLine
+// ============================================================
+
+describe('calcSalesTrendLine', () => {
+  it('空配列なら空を返す', () => {
+    expect(calcSalesTrendLine([], 'day')).toEqual([])
+  })
+
+  it('day: 各日が1点になる', () => {
+    const logs = [
+      makeLog({ log_date: '2026-06-01', total_sales: 100000 }),
+      makeLog({ log_date: '2026-06-02', total_sales: 80000 }),
+      makeLog({ log_date: '2026-06-03', total_sales: 120000 }),
+    ]
+    const result = calcSalesTrendLine(logs, 'day')
+    expect(result).toHaveLength(3)
+    expect(result[0].label).toBe('6/1')
+    expect(result[0].avgSales).toBe(100000)
+    expect(result[0].count).toBe(1)
+  })
+
+  it('week: 同じ週のログが集約される（平均）', () => {
+    // 2026-06-01（月）〜 2026-06-05（金）は同一週
+    const logs = [
+      makeLog({ log_date: '2026-06-01', total_sales: 100000 }),
+      makeLog({ log_date: '2026-06-03', total_sales: 80000 }),
+      makeLog({ log_date: '2026-06-08', total_sales: 120000 }), // 翌週
+    ]
+    const result = calcSalesTrendLine(logs, 'week')
+    expect(result).toHaveLength(2)
+    // 1週目: (100000+80000)/2 = 90000
+    expect(result[0].avgSales).toBe(90000)
+    expect(result[0].count).toBe(2)
+    // 2週目
+    expect(result[1].avgSales).toBe(120000)
+    expect(result[1].count).toBe(1)
+  })
+
+  it('month: 同月が集約される', () => {
+    const logs = [
+      makeLog({ log_date: '2026-06-10', total_sales: 100000 }),
+      makeLog({ log_date: '2026-06-20', total_sales: 200000 }),
+      makeLog({ log_date: '2026-07-05', total_sales: 90000 }),
+    ]
+    const result = calcSalesTrendLine(logs, 'month')
+    expect(result).toHaveLength(2)
+    expect(result[0].label).toBe('6月')
+    expect(result[0].avgSales).toBe(150000) // (100000+200000)/2
+    expect(result[1].label).toBe('7月')
+  })
+
+  it('quarter: 同四半期が集約される（Q2=4〜6月）', () => {
+    const logs = [
+      makeLog({ log_date: '2026-04-15', total_sales: 100000 }),
+      makeLog({ log_date: '2026-06-10', total_sales: 200000 }),
+      makeLog({ log_date: '2026-07-01', total_sales: 80000 }), // Q3
+    ]
+    const result = calcSalesTrendLine(logs, 'quarter')
+    expect(result).toHaveLength(2)
+    expect(result[0].label).toBe('2026Q2')
+    expect(result[0].avgSales).toBe(150000)
+    expect(result[1].label).toBe('2026Q3')
+  })
+
+  it('year: 年単位で集約される', () => {
+    const logs = [
+      makeLog({ log_date: '2025-12-31', total_sales: 100000 }),
+      makeLog({ log_date: '2026-01-01', total_sales: 200000 }),
+      makeLog({ log_date: '2026-06-15', total_sales: 300000 }),
+    ]
+    const result = calcSalesTrendLine(logs, 'year')
+    expect(result).toHaveLength(2)
+    expect(result[0].label).toBe('2025年')
+    expect(result[0].avgSales).toBe(100000)
+    expect(result[1].avgSales).toBe(250000) // (200000+300000)/2
+  })
+
+  it('時系列順（古い順）で返す', () => {
+    const logs = [
+      makeLog({ log_date: '2026-06-03', total_sales: 300 }),
+      makeLog({ log_date: '2026-06-01', total_sales: 100 }),
+      makeLog({ log_date: '2026-06-02', total_sales: 200 }),
+    ]
+    const result = calcSalesTrendLine(logs, 'day')
+    expect(result.map((r) => r.label)).toEqual(['6/1', '6/2', '6/3'])
+  })
+})
+
+// ============================================================
+// calcSufficiency
+// ============================================================
+
+describe('calcSufficiency', () => {
+  function makeLogs(n: number): ReturnType<typeof makeLog>[] {
+    return Array.from({ length: n }, (_, i) =>
+      makeLog({ log_date: `2026-06-${String(i + 1).padStart(2, '0')}` }),
+    )
+  }
+
+  it('前期 2件以上かつ min(current×0.5,3) 以上で true', () => {
+    const s = calcSufficiency(makeLogs(6), makeLogs(3))
+    expect(s.hasSufficientPrev).toBe(true)
+  })
+
+  it('前期 1件は false（prev_days < 2）', () => {
+    const s = calcSufficiency(makeLogs(6), makeLogs(1))
+    expect(s.hasSufficientPrev).toBe(false)
+  })
+
+  it('前期 0件は false', () => {
+    const s = calcSufficiency(makeLogs(6), [])
+    expect(s.hasSufficientPrev).toBe(false)
+  })
+
+  it('当期6件・前期2件: threshold=min(3,3)=3 → false（2<3）', () => {
+    const s = calcSufficiency(makeLogs(6), makeLogs(2))
+    expect(s.hasSufficientPrev).toBe(false)
+  })
+
+  it('当期4件・前期2件: threshold=min(2,3)=2 → true（2>=2）', () => {
+    const s = calcSufficiency(makeLogs(4), makeLogs(2))
+    expect(s.hasSufficientPrev).toBe(true)
+  })
+
+  it('昨対 2件以上で true', () => {
+    const s = calcSufficiency(makeLogs(6), makeLogs(3), makeLogs(3))
+    expect(s.hasSufficientYoy).toBe(true)
+  })
+
+  it('昨対 1件は false', () => {
+    const s = calcSufficiency(makeLogs(6), makeLogs(3), makeLogs(1))
+    expect(s.hasSufficientYoy).toBe(false)
+  })
+
+  it('昨対 省略（[]）は false', () => {
+    const s = calcSufficiency(makeLogs(6), makeLogs(3))
+    expect(s.hasSufficientYoy).toBe(false)
   })
 })

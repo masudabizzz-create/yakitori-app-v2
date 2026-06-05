@@ -1,111 +1,170 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useDailyLogStore } from '@/stores/dailyLog'
 import { useSettingsStore } from '@/stores/settings'
+import { useAuthStore } from '@/stores/auth'
 import VisitingBanner from '@/components/VisitingBanner.vue'
 import {
   summarize,
-  calcTrend,
-  weekdayAvgSales,
   courseShares,
   calcPeriodComparison,
-  calcCustomerMetrics,
-  detectAnomalies,
+  calcRealCustomerMetrics,
+  calcSalesTrendLine,
+  calcSufficiency,
   getAnalyticsSummary,
 } from '@/composables/useAnalytics'
+import {
+  getPeriodRange,
+  getPrevPeriod,
+  getYoyPeriod,
+  getTrendFetchRange,
+  SCOPE_LABELS,
+  type Scope,
+} from '@/composables/usePeriodRange'
+import type { DailyLog } from '@/types'
+import {
+  ChevronLeft,
+  ChevronRight,
+  BarChart2,
+  ClipboardList,
+  TrendingUp,
+} from 'lucide-vue-next'
 
+const router = useRouter()
 const dailyLogStore = useDailyLogStore()
 const settingsStore = useSettingsStore()
+const auth = useAuthStore()
 
-const PERIODS = [7, 14, 30, 90]
-const activePeriod = ref(7)
+// ─── 状態 ─────────────────────────────────────────────────────────
+const scope = ref<Scope>('week')
+const offset = ref(0)
 const activeTab = ref<'analysis' | 'log'>('analysis')
+const loading = ref(false)
 const loadError = ref('')
 
-// ── ログ分割: 今期 / 前期 ────────────────────────────────────────
-// fetchRecentLogs(days * 2) で2倍取得し、前半=今期 / 後半=前期 に分ける
-const logs = computed(() => dailyLogStore.logs.slice(0, activePeriod.value))
-const prevLogs = computed(() => dailyLogStore.logs.slice(activePeriod.value))
+const currentLogs = ref<DailyLog[]>([])
+const prevLogs = ref<DailyLog[]>([])
+const yoyLogs = ref<DailyLog[]>([])
+const trendLogs = ref<DailyLog[]>([])
 
-// ── 既存集計（変更なし） ─────────────────────────────────────────
-const summary = computed(() => summarize(logs.value))
-const trend = computed(() => calcTrend(logs.value))
-const weekdays = computed(() => weekdayAvgSales(logs.value))
+/** 日次ログ行の展開状態 */
+const expandedRows = ref<Set<string>>(new Set())
+function toggleRow(id: string) {
+  const next = new Set(expandedRows.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  expandedRows.value = next
+}
+
+// ─── 期間計算 ─────────────────────────────────────────────────────
+const currentPeriod = computed(() => getPeriodRange(scope.value, offset.value))
+
+// ─── 集計 ─────────────────────────────────────────────────────────
+const summary = computed(() => summarize(currentLogs.value))
 const shares = computed(() => courseShares(summary.value))
-const maxDowAvg = computed(() => Math.max(...weekdays.value.map((w) => w.avg), 1))
-const weekdaysMonToSat = computed(() => weekdays.value.slice(0, 6))
-const recentDrink = computed(() => logs.value.slice(0, 10).reverse())
-const maxSales = computed(() => Math.max(...logs.value.map((r) => r.total_sales), 1))
-
-// ── 新規集計 ─────────────────────────────────────────────────────
+const rcm = computed(() => calcRealCustomerMetrics(currentLogs.value))
+const sufficiency = computed(() =>
+  calcSufficiency(currentLogs.value, prevLogs.value, yoyLogs.value),
+)
 const comparison = computed(() =>
-  prevLogs.value.length > 0 ? calcPeriodComparison(logs.value, prevLogs.value) : null,
+  sufficiency.value.hasSufficientPrev
+    ? calcPeriodComparison(currentLogs.value, prevLogs.value)
+    : null,
 )
-const customerMetrics = computed(() => calcCustomerMetrics(logs.value))
-const anomalies = computed(() => detectAnomalies(logs.value))
+const trendData = computed(() => calcSalesTrendLine(trendLogs.value, scope.value))
 
-// AI 搭載準備: 構造化 JSON（Claude API に渡せる形式）
-// 将来の AI 分析機能で使用: getAnalyticsSummary の返り値をそのまま API に送れる
+// AI JSON（将来用）
 const analyticsSummaryJson = computed(() =>
-  getAnalyticsSummary(logs.value, prevLogs.value),
+  getAnalyticsSummary(
+    currentLogs.value,
+    prevLogs.value,
+    scope.value,
+    yoyLogs.value,
+    currentPeriod.value.label,
+  ),
 )
-
-// 外部から参照できるようにエクスポート（将来の AI 統合用）
 defineExpose({ analyticsSummaryJson })
 
-// ── 月次目標達成率 ────────────────────────────────────────────────
+// 月次目標
 const monthlyTarget = computed(() => settingsStore.settings?.monthly_sales_target ?? 0)
-
-// 今月の売上: logs の中から当月のものだけ合計
 const currentMonthSales = computed(() => {
-  const ym = new Date().toISOString().slice(0, 7) // "2026-06"
-  return logs.value
+  const ym = new Date().toISOString().slice(0, 7)
+  return currentLogs.value
     .filter((r) => r.log_date.startsWith(ym))
     .reduce((a, r) => a + r.total_sales, 0)
 })
-
 const monthlyProgress = computed(() =>
   monthlyTarget.value > 0
     ? Math.min(Math.round((currentMonthSales.value / monthlyTarget.value) * 100), 100)
     : 0,
 )
 
-// ── 串ランキング ──────────────────────────────────────────────────
-const skewerStocks = computed(() => dailyLogStore.skewerStocks)
-
-// ── データ読み込み ────────────────────────────────────────────────
-async function loadPeriod(days: number) {
-  activePeriod.value = days
+// ─── データ読み込み ────────────────────────────────────────────────
+async function loadData() {
+  loading.value = true
   loadError.value = ''
+  expandedRows.value = new Set()
   try {
-    // 2倍取得して前期比較に使う
-    await dailyLogStore.fetchRecentLogs(days * 2)
-    // 串在庫集計（今期分のlog IDで取得）
-    const logIds = dailyLogStore.logs.slice(0, days).map((l) => l.id)
-    await dailyLogStore.fetchSkewerStocks(logIds)
+    const tenantId = auth.effectiveTenantId
+    if (!tenantId) throw new Error('テナントが未選択です')
+
+    const cp = getPeriodRange(scope.value, offset.value)
+    const pp = getPrevPeriod(scope.value, offset.value)
+    const yp = getYoyPeriod(scope.value, offset.value)
+    const tr = getTrendFetchRange(scope.value, offset.value)
+
+    const [trendData, prevData, yoyData] = await Promise.all([
+      dailyLogStore.fetchByDateRange(tenantId, tr.from, tr.to),
+      dailyLogStore.fetchByDateRange(tenantId, pp.from, pp.to),
+      yp
+        ? dailyLogStore.fetchByDateRange(tenantId, yp.from, yp.to)
+        : Promise.resolve([] as DailyLog[]),
+    ])
+
+    trendLogs.value = trendData
+    currentLogs.value = trendData.filter(
+      (l) => l.log_date >= cp.from && l.log_date <= cp.to,
+    )
+    prevLogs.value = prevData
+    yoyLogs.value = yoyData
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : '読み込みに失敗しました'
+  } finally {
+    loading.value = false
   }
 }
 
 onMounted(async () => {
   await settingsStore.fetchSettings()
-  await loadPeriod(7)
+  await loadData()
 })
 
-// 期間変更時に串在庫も再取得
-watch(logs, (newLogs) => {
-  // logs が更新されたら logIds を再計算して再フェッチ（二重実行防止は loadPeriod 内で対処）
-  const logIds = newLogs.map((l) => l.id)
-  if (logIds.length > 0 && !dailyLogStore.loadingStocks) {
-    dailyLogStore.fetchSkewerStocks(logIds)
-  }
-})
+watch([scope, offset], loadData)
 
-// ── ユーティリティ ────────────────────────────────────────────────
+// ─── 期間ナビ ─────────────────────────────────────────────────────
+function goBack() { offset.value++ }
+function goForward() { if (offset.value > 0) offset.value-- }
+function changeScope(s: Scope) {
+  scope.value = s
+  offset.value = 0
+}
+
+// ─── 前期比較ページへ遷移 ─────────────────────────────────────────
+function goCompare(anchor = '') {
+  router.push({
+    name: 'analytics-compare',
+    query: {
+      scope: scope.value,
+      offset: String(offset.value),
+      ...(anchor ? { anchor } : {}),
+    },
+  })
+}
+
+// ─── ユーティリティ ────────────────────────────────────────────────
 function shortDate(ymd: string): string {
-  const parts = ymd.split('-')
-  return `${Number(parts[1])}/${Number(parts[2])}`
+  const p = ymd.split('-')
+  return `${Number(p[1])}/${Number(p[2])}`
 }
 
 function compBadgeClass(direction: '↑' | '↓' | '→') {
@@ -115,75 +174,160 @@ function compBadgeClass(direction: '↑' | '↓' | '→') {
     return 'bg-red-500/10 text-red-500 dark:text-red-400 border-red-500/20'
   return 'bg-neutral-500/10 text-neutral-500 dark:text-neutral-400 border-neutral-500/20'
 }
+
+// 客数: 実入力があればそちら、なければコース合計
+function logGuests(r: DailyLog): number | null {
+  return r.guests_count ?? null
+}
+function logGuestDisplay(r: DailyLog): string {
+  const g = logGuests(r)
+  return g !== null ? `${g}名` : `${r.course_casual + r.course_standard + r.course_premium}組`
+}
+// 客単価: guests_count があれば使用、なければコース合計ベース
+function logUnitPrice(r: DailyLog): string {
+  const guests = r.guests_count
+  const groups = r.groups_count
+  const base = guests ?? groups ?? (r.course_casual + r.course_standard + r.course_premium)
+  return base > 0 ? `¥${Math.round(r.total_sales / base).toLocaleString()}` : '—'
+}
+
+// 天気コード → 簡易ラベル
+function weatherLabel(code: number | null | undefined): string {
+  if (code == null) return ''
+  if (code === 0) return '快晴'
+  if (code <= 3) return '晴れ'
+  if (code <= 49) return '霧'
+  if (code <= 69) return '雨'
+  if (code <= 79) return '雪'
+  if (code <= 99) return '雷雨'
+  return ''
+}
+
+// 折れ線グラフ SVG ポイント計算
+const CHART_W = 300
+const CHART_H = 70
+const trendMax = computed(() => Math.max(...trendData.value.map((d) => d.avgSales), 1))
+
+function chartPoints(): string {
+  const data = trendData.value
+  if (data.length < 2) return ''
+  return data
+    .map((d, i) => {
+      const x = (i / (data.length - 1)) * CHART_W
+      const y = CHART_H - (d.avgSales / trendMax.value) * CHART_H
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+}
+
+function chartAreaPath(): string {
+  const data = trendData.value
+  if (data.length < 2) return ''
+  const pts = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * CHART_W
+    const y = CHART_H - (d.avgSales / trendMax.value) * CHART_H
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  return `M ${pts[0]} L ${pts.slice(1).join(' L ')} L ${CHART_W},${CHART_H} L 0,${CHART_H} Z`
+}
+
+function chartX(i: number, total: number): number {
+  return total <= 1 ? CHART_W / 2 : (i / (total - 1)) * CHART_W
+}
+function chartY(avgSales: number): number {
+  return CHART_H - (avgSales / trendMax.value) * CHART_H
+}
+
+const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
 </script>
 
 <template>
   <div class="min-h-screen bg-app dark:bg-app-dark pb-8">
     <!-- ヘッダー -->
-    <header
-      class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10"
-    >
+    <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
       <VisitingBanner />
-      <div class="max-w-lg mx-auto px-4 py-4 flex items-center gap-3 pr-12">
+      <div class="max-w-lg mx-auto px-4 pt-3 pb-1 flex items-center gap-2">
         <router-link
           to="/"
-          class="text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 text-sm"
-          >‹ ホーム</router-link
+          class="flex items-center gap-0.5 text-sm text-neutral-400 dark:text-neutral-500
+                 hover:text-neutral-600 dark:hover:text-neutral-300 shrink-0"
         >
-        <h1 class="text-xl font-semibold text-neutral-900 dark:text-neutral-50">分析・集計</h1>
+          <ChevronLeft :size="16" />ホーム
+        </router-link>
+        <h1 class="text-base font-semibold text-neutral-900 dark:text-neutral-50 flex-1 truncate">
+          分析・集計
+        </h1>
       </div>
       <!-- タブ -->
       <div class="max-w-lg mx-auto px-4 flex">
         <button
           type="button"
-          class="flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors"
-          :class="
-            activeTab === 'analysis'
-              ? 'border-brand-500 text-brand-500'
-              : 'border-transparent text-neutral-400 dark:text-neutral-500'
-          "
+          class="flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5"
+          :class="activeTab === 'analysis'
+            ? 'border-brand-500 text-brand-500'
+            : 'border-transparent text-neutral-400 dark:text-neutral-500'"
           @click="activeTab = 'analysis'"
         >
-          📊 分析
+          <BarChart2 :size="14" />分析
         </button>
         <button
           type="button"
-          class="flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors"
-          :class="
-            activeTab === 'log'
-              ? 'border-brand-500 text-brand-500'
-              : 'border-transparent text-neutral-400 dark:text-neutral-500'
-          "
+          class="flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5"
+          :class="activeTab === 'log'
+            ? 'border-brand-500 text-brand-500'
+            : 'border-transparent text-neutral-400 dark:text-neutral-500'"
           @click="activeTab = 'log'"
         >
-          📋 ログ
+          <ClipboardList :size="14" />ログ
         </button>
       </div>
     </header>
 
-    <main class="max-w-lg mx-auto px-4 py-5 space-y-4">
-      <!-- 期間選択 -->
-      <div class="flex gap-2">
+    <main class="max-w-lg mx-auto px-4 py-4 space-y-3">
+      <!-- スコープ選択 -->
+      <div class="flex gap-1.5">
         <button
-          v-for="p in PERIODS"
-          :key="p"
+          v-for="s in SCOPES"
+          :key="s"
           type="button"
-          class="flex-1 min-h-tap rounded-xl text-sm font-medium border active:scale-95 transition-transform"
-          :class="
-            activePeriod === p
-              ? 'bg-brand-500 text-white border-brand-500'
-              : 'bg-card dark:bg-card-dark text-neutral-500 dark:text-neutral-400 border-edge dark:border-edge-dark'
-          "
-          @click="loadPeriod(p)"
+          class="flex-1 py-2 rounded-xl text-xs font-medium border transition-colors"
+          :class="scope === s
+            ? 'bg-brand-500 text-white border-brand-500'
+            : 'bg-card dark:bg-card-dark text-neutral-500 dark:text-neutral-400 border-edge dark:border-edge-dark'"
+          @click="changeScope(s)"
         >
-          {{ p }}日
+          {{ SCOPE_LABELS[s] }}
         </button>
       </div>
 
-      <p
-        v-if="dailyLogStore.loadingLogs"
-        class="text-center text-neutral-400 dark:text-neutral-500 py-12"
-      >
+      <!-- 期間ナビ -->
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="w-8 h-8 rounded-lg flex items-center justify-center text-neutral-500 dark:text-neutral-400
+                 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          @click="goBack"
+        >
+          <ChevronLeft :size="16" />
+        </button>
+        <p class="flex-1 text-center text-sm font-semibold text-neutral-800 dark:text-neutral-100 truncate">
+          {{ currentPeriod.label }}
+        </p>
+        <button
+          type="button"
+          class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+          :class="offset > 0
+            ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+            : 'text-neutral-200 dark:text-neutral-700 cursor-not-allowed'"
+          :disabled="offset === 0"
+          @click="goForward"
+        >
+          <ChevronRight :size="16" />
+        </button>
+      </div>
+
+      <!-- ローディング -->
+      <p v-if="loading" class="text-center text-neutral-400 dark:text-neutral-500 py-12">
         読み込み中...
       </p>
       <p
@@ -193,172 +337,175 @@ function compBadgeClass(direction: '↑' | '↓' | '→') {
         {{ loadError }}
       </p>
       <div
-        v-else-if="logs.length === 0"
-        class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-6 py-12 text-center text-neutral-400 dark:text-neutral-500"
+        v-else-if="currentLogs.length === 0"
+        class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-6 py-12 text-center space-y-3"
       >
-        <p class="text-4xl mb-3">📭</p>
-        <p class="text-sm">データがありません</p>
+        <ClipboardList :size="36" class="mx-auto text-neutral-300 dark:text-neutral-600" />
+        <p class="text-sm text-neutral-400 dark:text-neutral-500">この期間のデータがありません</p>
       </div>
 
       <template v-else>
         <!-- ===== 分析タブ ===== -->
-        <div v-show="activeTab === 'analysis'" class="space-y-4">
+        <div v-show="activeTab === 'analysis'" class="space-y-3">
 
-          <!-- ① 月次目標達成率（設定済み時のみ表示） -->
+          <!-- 月次目標 -->
           <section
-            v-if="monthlyTarget > 0"
+            v-if="monthlyTarget > 0 && (scope === 'month' || scope === 'day' || scope === 'week')"
             class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3"
           >
             <div class="flex items-center justify-between mb-2">
-              <p class="text-xs text-neutral-500 dark:text-neutral-400">今月の売上目標達成率</p>
-              <p class="text-sm font-bold tabular-nums" :class="monthlyProgress >= 100 ? 'text-green-600 dark:text-green-400' : 'text-brand-500'">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">今月の達成率</p>
+              <p class="text-sm font-bold tabular-nums"
+                :class="monthlyProgress >= 100 ? 'text-green-600 dark:text-green-400' : 'text-brand-500'">
                 {{ monthlyProgress }}%
               </p>
             </div>
-            <div class="h-3 bg-black/[0.05] dark:bg-white/[0.06] rounded-full overflow-hidden">
+            <div class="h-2 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
               <div
                 class="h-full rounded-full transition-all duration-500"
                 :class="monthlyProgress >= 100 ? 'bg-green-500' : 'bg-brand-500'"
                 :style="{ width: `${monthlyProgress}%` }"
               />
             </div>
-            <div class="flex justify-between mt-1.5 text-xs text-neutral-400 dark:text-neutral-500 tabular-nums">
+            <div class="flex justify-between mt-1 text-xs text-neutral-400 dark:text-neutral-500 tabular-nums">
               <span>¥{{ currentMonthSales.toLocaleString() }}</span>
               <span>目標 ¥{{ monthlyTarget.toLocaleString() }}</span>
             </div>
           </section>
 
-          <!-- ② 前期比較カード（前期データあり時のみ） -->
-          <section
-            v-if="comparison"
-            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-          >
-            <h2
-              class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200"
-            >
-              前期比較（直近{{ activePeriod }}日 vs 前{{ activePeriod }}日）
-            </h2>
-            <div class="grid grid-cols-3 divide-x divide-edge dark:divide-edge-dark">
-              <div
-                v-for="item in [
-                  { label: '売上', data: comparison.sales, fmt: (v: number) => `¥${Math.round(v/1000)}k` },
-                  { label: '組数', data: comparison.customers, fmt: (v: number) => `${v}組` },
-                  { label: '組単価', data: comparison.unitPrice, fmt: (v: number) => `¥${Math.round(v/100)*100}` },
-                ]"
-                :key="item.label"
-                class="px-2 py-3 text-center"
-              >
-                <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">{{ item.label }}</p>
-                <p class="text-base font-bold tabular-nums text-neutral-900 dark:text-neutral-50 leading-none">
-                  {{ item.fmt(item.data.current) }}
-                </p>
-                <span
-                  class="inline-block mt-1.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-full border tabular-nums"
-                  :class="compBadgeClass(item.data.direction)"
-                >
-                  {{ item.data.direction }}{{ item.data.pct > 0 ? '+' : '' }}{{ item.data.pct }}%
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <!-- ③ サマリーカード（既存） -->
+          <!-- ① 今期累計サマリー（売上・串） -->
           <div class="grid grid-cols-2 gap-3">
-            <div
-              class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3"
-            >
+            <!-- 合計売上 -->
+            <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3 space-y-1">
               <p class="text-xs text-neutral-500 dark:text-neutral-400">合計売上</p>
-              <p class="text-2xl font-bold tabular-nums text-neutral-900 dark:text-neutral-50 mt-1">
+              <p class="text-2xl font-bold tabular-nums text-neutral-900 dark:text-neutral-50">
                 ¥{{ summary.totalSales.toLocaleString() }}
               </p>
-              <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+              <p class="text-xs text-neutral-400 dark:text-neutral-500">
                 平均 ¥{{ summary.avgSales.toLocaleString() }}/日
               </p>
-              <span
-                v-if="trend.direction"
-                class="inline-block mt-1.5 text-xs font-medium px-2.5 py-1 rounded-full border"
-                :class="{
-                  'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20':
-                    trend.direction === '↑',
-                  'bg-red-500/10 text-red-500 dark:text-red-400 border-red-500/20':
-                    trend.direction === '↓',
-                  'bg-neutral-500/10 text-neutral-500 dark:text-neutral-400 border-neutral-500/20':
-                    trend.direction === '→',
-                }"
+              <!-- 前期比バッジ（タップで比較ページへ） -->
+              <button
+                v-if="comparison"
+                type="button"
+                class="inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full border transition-opacity hover:opacity-80"
+                :class="compBadgeClass(comparison.sales.direction)"
+                @click="goCompare('sales')"
               >
-                <template v-if="trend.direction === '↑'">↑ {{ trend.pct }}%</template>
-                <template v-else-if="trend.direction === '↓'">↓ {{ Math.abs(trend.pct) }}%</template>
-                <template v-else>→ 横ばい</template>
-              </span>
+                {{ comparison.sales.direction }}{{ comparison.sales.pct > 0 ? '+' : '' }}{{ comparison.sales.pct }}%
+              </button>
+              <span
+                v-else-if="currentLogs.length > 0"
+                class="inline-block text-[10px] text-neutral-300 dark:text-neutral-600"
+              >データ不足</span>
             </div>
-            <div
-              class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3"
-            >
+            <!-- 合計串本数 -->
+            <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3 space-y-1">
               <p class="text-xs text-neutral-500 dark:text-neutral-400">合計串本数</p>
-              <p class="text-2xl font-bold tabular-nums text-neutral-900 dark:text-neutral-50 mt-1">
-                {{ summary.totalSkewers.toLocaleString()
-                }}<span class="text-sm text-neutral-400 dark:text-neutral-500">本</span>
+              <p class="text-2xl font-bold tabular-nums text-neutral-900 dark:text-neutral-50">
+                {{ summary.totalSkewers.toLocaleString() }}<span class="text-sm text-neutral-400 dark:text-neutral-500">本</span>
               </p>
-              <p class="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+              <p class="text-xs text-neutral-400 dark:text-neutral-500">
                 平均 {{ summary.avgSkewers }}本/日
               </p>
             </div>
           </div>
 
-          <!-- ④ 客数・客単価（新規） -->
-          <div class="grid grid-cols-3 gap-3">
-            <div
-              class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-3 text-center"
-            >
-              <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">合計組数</p>
-              <p class="text-xl font-bold tabular-nums text-neutral-900 dark:text-neutral-50">
-                {{ customerMetrics.totalCustomers }}<span class="text-xs text-neutral-400">組</span>
+          <!-- ① 下段: 組数・客数・客単価 -->
+          <div
+            v-if="rcm.sampleCount > 0"
+            class="grid grid-cols-3 gap-2"
+          >
+            <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-2.5 text-center space-y-0.5">
+              <p class="text-[10px] text-neutral-400 dark:text-neutral-500">合計組数</p>
+              <p class="text-lg font-bold tabular-nums text-neutral-900 dark:text-neutral-50">
+                {{ rcm.totalGroups }}<span class="text-[10px] text-neutral-400">組</span>
               </p>
+              <p class="text-[10px] text-neutral-400 dark:text-neutral-500">平均 {{ rcm.avgGroupsPerDay }}組/日</p>
             </div>
-            <div
-              class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-3 text-center"
-            >
-              <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">1日平均</p>
-              <p class="text-xl font-bold tabular-nums text-neutral-900 dark:text-neutral-50">
-                {{ customerMetrics.avgCustomersPerDay }}<span class="text-xs text-neutral-400">組</span>
+            <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-2.5 text-center space-y-0.5">
+              <p class="text-[10px] text-neutral-400 dark:text-neutral-500">合計客数</p>
+              <p class="text-lg font-bold tabular-nums text-neutral-900 dark:text-neutral-50">
+                {{ rcm.totalGuests }}<span class="text-[10px] text-neutral-400">名</span>
               </p>
+              <p class="text-[10px] text-neutral-400 dark:text-neutral-500">平均 {{ rcm.avgGuestsPerDay }}名/日</p>
             </div>
-            <div
-              class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-3 text-center"
-            >
-              <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">組単価</p>
-              <p class="text-xl font-bold tabular-nums text-brand-500">
-                ¥{{ customerMetrics.avgUnitPrice.toLocaleString() }}
+            <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-2.5 text-center space-y-0.5">
+              <p class="text-[10px] text-neutral-400 dark:text-neutral-500">客単価</p>
+              <p class="text-lg font-bold tabular-nums text-brand-500">
+                ¥{{ rcm.avgSpendPerGuest.toLocaleString() }}
               </p>
             </div>
           </div>
 
-          <!-- ⑤ ドリンク比率平均（既存） -->
-          <div
+          <!-- ② 売上推移折れ線グラフ -->
+          <section
+            v-if="trendData.length >= 2"
             class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3"
           >
-            <p class="text-xs text-neutral-500 dark:text-neutral-400 mb-1.5">ドリンク比率（平均）</p>
-            <div class="h-6 bg-black/[0.05] dark:bg-white/[0.06] rounded-full overflow-hidden">
-              <div
-                class="h-full bg-green-500 flex items-center justify-end px-2"
-                :style="{ width: `${Math.min(summary.avgDrink, 100)}%` }"
-              >
-                <span class="text-xs text-white font-bold tabular-nums"
-                  >{{ summary.avgDrink }}%</span
-                >
-              </div>
+            <div class="flex items-center gap-2 mb-3">
+              <TrendingUp :size="14" class="text-brand-500 shrink-0" />
+              <p class="text-xs font-semibold text-neutral-700 dark:text-neutral-200">
+                売上推移（1日あたり平均）
+              </p>
             </div>
-          </div>
-
-          <!-- ⑥ コース内訳（既存） -->
-          <section
-            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-          >
-            <h2
-              class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200"
+            <!-- SVG 折れ線 -->
+            <svg
+              :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
+              class="w-full overflow-visible"
+              preserveAspectRatio="none"
             >
-              コース内訳
-            </h2>
+              <defs>
+                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="rgb(8,145,178)" stop-opacity="0.3" />
+                  <stop offset="100%" stop-color="rgb(8,145,178)" stop-opacity="0" />
+                </linearGradient>
+              </defs>
+              <!-- エリア塗り -->
+              <path :d="chartAreaPath()" fill="url(#chartGrad)" />
+              <!-- ライン -->
+              <polyline
+                :points="chartPoints()"
+                fill="none"
+                stroke="rgb(8,145,178)"
+                stroke-width="2"
+                stroke-linejoin="round"
+                stroke-linecap="round"
+              />
+              <!-- データポイント -->
+              <circle
+                v-for="(pt, i) in trendData"
+                :key="i"
+                :cx="chartX(i, trendData.length)"
+                :cy="chartY(pt.avgSales)"
+                r="3"
+                fill="rgb(8,145,178)"
+                :opacity="pt.count < 3 ? 0.4 : 1"
+              />
+            </svg>
+            <!-- X軸ラベル（間引き表示） -->
+            <div class="flex justify-between mt-1 px-0.5">
+              <template v-for="(pt, i) in trendData" :key="i">
+                <span
+                  v-if="i === 0 || i === trendData.length - 1 || (trendData.length <= 8) || i % Math.ceil(trendData.length / 6) === 0"
+                  class="text-[9px] text-neutral-400 dark:text-neutral-500 tabular-nums"
+                  :style="{ opacity: pt.count < 3 ? 0.5 : 1 }"
+                >{{ pt.label }}</span>
+              </template>
+            </div>
+          </section>
+
+          <!-- ③ コース内訳 -->
+          <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
+            <div class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-200">コース内訳</h2>
+              <button
+                v-if="comparison"
+                type="button"
+                class="text-[11px] text-brand-500 hover:opacity-70 transition-opacity"
+                @click="goCompare('courses')"
+              >前期比 ›</button>
+            </div>
             <div class="grid grid-cols-3 divide-x divide-edge dark:divide-edge-dark">
               <div v-for="c in shares" :key="c.label" class="px-2 py-3 text-center">
                 <p class="text-2xl font-bold tabular-nums text-brand-500">{{ c.count }}</p>
@@ -368,212 +515,117 @@ function compBadgeClass(direction: '↑' | '↓' | '→') {
             </div>
           </section>
 
-          <!-- ⑦ 曜日別平均売上（既存） -->
-          <section
-            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-          >
-            <h2
-              class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200"
-            >
-              曜日別 平均売上
-            </h2>
-            <div class="px-4 py-3 space-y-2">
-              <div v-for="w in weekdaysMonToSat" :key="w.dow" class="flex items-center gap-2">
-                <span class="w-8 text-xs text-neutral-500 dark:text-neutral-400">{{
-                  w.dow.replace('曜', '')
-                }}</span>
-                <div class="flex-1 h-5 bg-black/[0.05] dark:bg-white/[0.06] rounded overflow-hidden">
-                  <div
-                    class="h-full bg-brand-500 flex items-center justify-end px-1.5"
-                    :style="{ width: `${Math.round((w.avg / maxDowAvg) * 100)}%` }"
-                  >
-                    <span v-if="w.avg > 0" class="text-[10px] text-white font-medium tabular-nums">
-                      ¥{{ Math.round(w.avg / 1000) }}k
-                    </span>
-                  </div>
-                </div>
+          <!-- ④ ドリンク比率 -->
+          <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-xs font-semibold text-neutral-700 dark:text-neutral-200">ドリンク比率（平均）</p>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-bold tabular-nums text-neutral-700 dark:text-neutral-200">
+                  {{ summary.avgDrink }}%
+                </span>
+                <button
+                  v-if="comparison"
+                  type="button"
+                  class="text-[11px] text-brand-500 hover:opacity-70 transition-opacity"
+                  @click="goCompare('drink')"
+                >前期比 ›</button>
               </div>
             </div>
-          </section>
-
-          <!-- ⑧ 異常値アラート（新規） -->
-          <section
-            v-if="anomalies.length > 0"
-            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-          >
-            <h2
-              class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200"
-            >
-              📍 異常値アラート
-            </h2>
-            <div class="divide-y divide-edge dark:divide-edge-dark">
+            <div class="h-5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
               <div
-                v-for="a in anomalies"
-                :key="a.date"
-                class="px-4 py-2.5 flex items-center gap-3"
+                class="h-full bg-green-500 rounded-full flex items-center justify-end px-2"
+                :style="{ width: `${Math.min(summary.avgDrink, 100)}%` }"
               >
-                <span
-                  class="shrink-0 text-sm font-bold w-6 text-center"
-                  :class="a.direction === '↑' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'"
-                >
-                  {{ a.direction }}
-                </span>
-                <span class="text-xs text-neutral-500 dark:text-neutral-400 shrink-0">
-                  {{ shortDate(a.date) }} {{ a.dayOfWeek.replace('曜', '') }}
-                </span>
-                <span class="flex-1 text-xs text-neutral-700 dark:text-neutral-200 tabular-nums">
-                  ¥{{ a.actualSales.toLocaleString() }}
-                </span>
-                <span
-                  class="shrink-0 text-[11px] px-2 py-0.5 rounded-full border font-medium"
-                  :class="a.direction === '↑' ? 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-500 dark:text-red-400 border-red-500/20'"
-                >
-                  {{ a.direction === '↑' ? '平均+' : '平均-' }}{{ a.sigmas }}σ
+                <span v-if="summary.avgDrink >= 15" class="text-[10px] text-white font-medium tabular-nums">
+                  {{ summary.avgDrink }}%
                 </span>
               </div>
             </div>
-          </section>
+          </div>
 
-          <!-- ⑨ 串ランキング（在庫記録あり時のみ表示） -->
-          <section
-            v-if="skewerStocks.length > 0"
-            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-          >
-            <h2
-              class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200"
-            >
-              🔪 串在庫ランキング（売り切れ頻度順）
-            </h2>
-            <div class="divide-y divide-edge dark:divide-edge-dark">
-              <div
-                v-for="(s, idx) in skewerStocks.slice(0, 8)"
-                :key="s.skewerId"
-                class="px-4 py-2.5 flex items-center gap-3"
-              >
-                <span
-                  class="shrink-0 w-5 text-center text-xs font-bold tabular-nums"
-                  :class="idx < 3 ? 'text-brand-500' : 'text-neutral-400 dark:text-neutral-500'"
-                >
-                  {{ idx + 1 }}
-                </span>
-                <span class="flex-1 text-sm text-neutral-800 dark:text-neutral-100 truncate">{{ s.name }}</span>
-                <span class="text-xs text-neutral-400 dark:text-neutral-500 shrink-0">{{ s.category }}</span>
-                <div class="shrink-0 text-right">
-                  <p class="text-xs font-medium tabular-nums" :class="s.zeroCount > 3 ? 'text-red-500 dark:text-red-400' : 'text-neutral-500 dark:text-neutral-400'">
-                    売切 {{ s.zeroCount }}日
-                  </p>
-                  <p class="text-[10px] text-neutral-400 dark:text-neutral-500 tabular-nums">
-                    平均{{ s.avgStock }}P
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ⑩ ドリンク比率推移（既存） -->
-          <section
-            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-          >
-            <h2
-              class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200"
-            >
-              ドリンク比率 推移（直近10日）
-            </h2>
-            <div class="px-4 py-3 space-y-2">
-              <div v-for="r in recentDrink" :key="r.id" class="flex items-center gap-2">
-                <span class="w-10 text-xs text-neutral-500 dark:text-neutral-400">{{
-                  shortDate(r.log_date)
-                }}</span>
-                <div class="flex-1 h-5 bg-black/[0.05] dark:bg-white/[0.06] rounded overflow-hidden">
-                  <div
-                    class="h-full bg-green-500 flex items-center justify-end px-1.5"
-                    :style="{ width: `${Math.min(r.drink_ratio, 100)}%` }"
-                  >
-                    <span class="text-[10px] text-white font-medium tabular-nums"
-                      >{{ r.drink_ratio }}%</span
-                    >
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <!-- ⑪ 日次ログテーブル（既存） -->
-          <section
-            class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-          >
-            <h2
-              class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200"
-            >
+          <!-- ⑤ 日次ログ（展開行付き） -->
+          <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
+            <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
               日次ログ
             </h2>
             <div class="overflow-x-auto">
-              <table class="w-full text-sm">
+              <table class="w-full text-xs">
                 <thead>
-                  <tr
-                    class="text-xs text-neutral-500 dark:text-neutral-400 bg-black/[0.03] dark:bg-white/[0.04]"
-                  >
-                    <th class="px-2 py-2 text-left">日付</th>
-                    <th class="px-2 py-2">曜日</th>
-                    <th class="px-2 py-2">売上</th>
-                    <th class="px-2 py-2">串本数</th>
-                    <th class="px-2 py-2">コース計</th>
-                    <th class="px-2 py-2">ドリンク%</th>
-                    <th class="px-2 py-2">担当</th>
+                  <tr class="text-[10px] text-neutral-500 dark:text-neutral-400 bg-black/[0.03] dark:bg-white/[0.04]">
+                    <th class="px-2 py-1.5 text-left">日付</th>
+                    <th class="px-1 py-1.5">曜</th>
+                    <th class="px-2 py-1.5 text-right">売上</th>
+                    <th class="px-2 py-1.5 text-center">コース</th>
+                    <th class="px-2 py-1.5 text-center">客数</th>
+                    <th class="px-2 py-1.5 text-right">客単価</th>
+                    <th class="px-2 py-1.5 text-left">担当</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr
-                    v-for="r in logs"
-                    :key="r.id"
-                    class="border-t border-edge dark:border-edge-dark"
-                  >
-                    <td class="px-2 py-2 text-neutral-500 dark:text-neutral-400">
-                      {{ shortDate(r.log_date) }}
-                    </td>
-                    <td class="px-2 py-2 text-center">
-                      <span
-                        :class="
-                          r.day_of_week === '日曜'
-                            ? 'text-red-500'
-                            : r.day_of_week === '土曜'
-                              ? 'text-blue-500 dark:text-blue-400'
-                              : 'text-neutral-500 dark:text-neutral-400'
-                        "
-                        >{{ r.day_of_week.replace('曜', '') }}</span
-                      >
-                    </td>
-                    <td
-                      class="px-2 py-2 text-right font-medium tabular-nums"
-                      :class="
-                        r.total_sales >= maxSales * 0.85
+                  <template v-for="r in currentLogs" :key="r.id">
+                    <!-- メイン行 -->
+                    <tr
+                      class="border-t border-edge dark:border-edge-dark cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-900/30 transition-colors"
+                      @click="toggleRow(r.id)"
+                    >
+                      <td class="px-2 py-2 text-neutral-500 dark:text-neutral-400">
+                        {{ shortDate(r.log_date) }}
+                      </td>
+                      <td class="px-1 py-2 text-center">
+                        <span :class="r.day_of_week === '日曜' ? 'text-red-500' : r.day_of_week === '土曜' ? 'text-blue-500 dark:text-blue-400' : 'text-neutral-500 dark:text-neutral-400'">
+                          {{ r.day_of_week.replace('曜', '') }}
+                        </span>
+                      </td>
+                      <td class="px-2 py-2 text-right font-medium tabular-nums"
+                        :class="r.total_sales >= Math.max(...currentLogs.map(l => l.total_sales)) * 0.85
                           ? 'text-green-600 dark:text-green-400'
-                          : r.total_sales > 0 && r.total_sales <= maxSales * 0.4
-                            ? 'text-red-500 dark:text-red-400'
-                            : 'text-neutral-700 dark:text-neutral-200'
-                      "
+                          : 'text-neutral-700 dark:text-neutral-200'">
+                        ¥{{ r.total_sales.toLocaleString() }}
+                      </td>
+                      <td class="px-2 py-2 text-center tabular-nums text-neutral-500 dark:text-neutral-400">
+                        {{ r.course_casual + r.course_standard + r.course_premium }}
+                      </td>
+                      <td class="px-2 py-2 text-center text-neutral-500 dark:text-neutral-400">
+                        {{ logGuestDisplay(r) }}
+                      </td>
+                      <td class="px-2 py-2 text-right tabular-nums text-neutral-500 dark:text-neutral-400">
+                        {{ logUnitPrice(r) }}
+                      </td>
+                      <td class="px-2 py-2 text-neutral-400 dark:text-neutral-500 truncate max-w-[4rem]">
+                        {{ r.staff_name }}
+                      </td>
+                    </tr>
+                    <!-- 展開行 -->
+                    <tr
+                      v-if="expandedRows.has(r.id)"
+                      class="border-t border-edge dark:border-edge-dark bg-neutral-50/50 dark:bg-neutral-900/20"
                     >
-                      ¥{{ r.total_sales.toLocaleString() }}
-                    </td>
-                    <td
-                      class="px-2 py-2 text-center tabular-nums text-neutral-500 dark:text-neutral-400"
-                    >
-                      {{ r.total_skewers }}
-                    </td>
-                    <td
-                      class="px-2 py-2 text-center tabular-nums text-neutral-500 dark:text-neutral-400"
-                    >
-                      {{ r.course_casual + r.course_standard + r.course_premium }}
-                    </td>
-                    <td
-                      class="px-2 py-2 text-center tabular-nums text-neutral-500 dark:text-neutral-400"
-                    >
-                      {{ r.drink_ratio }}%
-                    </td>
-                    <td class="px-2 py-2 text-neutral-500 dark:text-neutral-400">
-                      {{ r.staff_name }}
-                    </td>
-                  </tr>
+                      <td colspan="7" class="px-4 py-2.5">
+                        <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                          <!-- 外的要因 -->
+                          <div v-if="r.weather_code != null" class="col-span-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                            <span v-if="weatherLabel(r.weather_code)">天気: {{ weatherLabel(r.weather_code) }}</span>
+                            <span v-if="r.temp_avg != null">気温: {{ r.temp_avg }}°C</span>
+                            <span v-if="r.precip_mm != null">降水: {{ r.precip_mm }}mm</span>
+                            <span v-if="r.humidity_avg != null">湿度: {{ r.humidity_avg }}%</span>
+                            <span v-if="r.is_holiday" class="text-red-500">祝日</span>
+                            <span v-if="r.is_pre_holiday" class="text-amber-500">祝前日</span>
+                          </div>
+                          <!-- 串・ドリンク・コース内訳 -->
+                          <span>串本数: {{ r.total_skewers }}本</span>
+                          <span>ドリンク: {{ r.drink_ratio }}%</span>
+                          <span class="col-span-2">
+                            C{{ r.course_casual }} / S{{ r.course_standard }} / P{{ r.course_premium }}
+                            <template v-if="r.groups_count != null"> · {{ r.groups_count }}組</template>
+                            <template v-if="r.guests_count != null"> {{ r.guests_count }}名</template>
+                          </span>
+                          <span v-if="r.memo" class="col-span-2 text-neutral-600 dark:text-neutral-300 italic">
+                            「{{ r.memo }}」
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
                 </tbody>
               </table>
             </div>
@@ -583,30 +635,22 @@ function compBadgeClass(direction: '↑' | '↓' | '→') {
         <!-- ===== ログタブ ===== -->
         <div v-show="activeTab === 'log'" class="space-y-3">
           <article
-            v-for="r in logs"
+            v-for="r in currentLogs"
             :key="r.id"
             class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3"
           >
             <div class="flex items-center justify-between">
               <p class="font-bold text-neutral-900 dark:text-neutral-50">
                 {{ shortDate(r.log_date) }}
-                <span class="text-sm text-neutral-400 dark:text-neutral-500">{{
-                  r.day_of_week
-                }}</span>
+                <span class="text-sm text-neutral-400 dark:text-neutral-500">{{ r.day_of_week }}</span>
               </p>
               <p class="text-lg font-bold tabular-nums text-brand-500">
                 ¥{{ r.total_sales.toLocaleString() }}
               </p>
             </div>
-            <div
-              class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-neutral-500 dark:text-neutral-400"
-            >
+            <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+              <span>C{{ r.course_casual }} / S{{ r.course_standard }} / P{{ r.course_premium }}</span>
               <span>串 {{ r.total_skewers }}本</span>
-              <span
-                >C{{ r.course_casual }} / S{{ r.course_standard }} / P{{
-                  r.course_premium
-                }}</span
-              >
               <span>ドリンク {{ r.drink_ratio }}%</span>
               <span>焼師 {{ r.staff_name }}</span>
             </div>
@@ -614,9 +658,12 @@ function compBadgeClass(direction: '↑' | '↓' | '→') {
               v-if="r.memo"
               class="mt-2 text-sm text-neutral-600 dark:text-neutral-300 bg-black/[0.03] dark:bg-white/[0.04] rounded-lg px-3 py-2"
             >
-              📝 {{ r.memo }}
+              {{ r.memo }}
             </p>
           </article>
+          <p v-if="currentLogs.every(r => !r.memo)" class="text-xs text-center text-neutral-400 dark:text-neutral-500 py-6">
+            この期間にメモはありません
+          </p>
         </div>
       </template>
     </main>
