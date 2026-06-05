@@ -7,6 +7,8 @@ import {
   calcRealCustomerMetrics,
   calcSalesTrendLine,
   calcSufficiency,
+  alignToPeriod,
+  calcPeriodComparison,
 } from '@/composables/useAnalytics'
 import type { DailyLog } from '@/types'
 
@@ -384,5 +386,74 @@ describe('calcSufficiency', () => {
   it('昨対 省略（[]）は false', () => {
     const s = calcSufficiency(makeLogs(6), makeLogs(3))
     expect(s.hasSufficientYoy).toBe(false)
+  })
+})
+
+// ============================================================
+// alignToPeriod
+// ============================================================
+
+describe('alignToPeriod', () => {
+  function makeLogDate(date: string): ReturnType<typeof makeLog> {
+    return makeLog({ log_date: date, total_sales: 100000 })
+  }
+
+  // 参照ログは降順（fetchByDateRange の出力を模倣）
+  const prevLogs = [
+    makeLogDate('2026-05-31'),
+    makeLogDate('2026-05-30'),
+    makeLogDate('2026-05-29'),
+    makeLogDate('2026-05-28'),
+    makeLogDate('2026-05-27'),
+  ]
+
+  it('current が 3件 → 参照の末尾3件（先頭3営業日）を返す', () => {
+    const current = [makeLogDate('2026-06-04'), makeLogDate('2026-06-03'), makeLogDate('2026-06-02')]
+    const aligned = alignToPeriod(current, prevLogs)
+    expect(aligned).toHaveLength(3)
+    // 末尾3件 = 最古3件 = 5/27, 5/28, 5/29
+    expect(aligned.map(l => l.log_date)).toEqual(['2026-05-29', '2026-05-28', '2026-05-27'])
+  })
+
+  it('current が reference 以上なら全件返す', () => {
+    const current = Array(7).fill(makeLogDate('2026-06-01'))
+    const aligned = alignToPeriod(current, prevLogs)
+    expect(aligned).toHaveLength(5) // prevLogs.length
+  })
+
+  it('current が 0件なら参照をそのまま返す', () => {
+    const aligned = alignToPeriod([], prevLogs)
+    expect(aligned).toBe(prevLogs) // 同一参照
+  })
+
+  it('reference が空なら空を返す', () => {
+    const current = [makeLogDate('2026-06-04')]
+    const aligned = alignToPeriod(current, [])
+    expect(aligned).toHaveLength(0)
+  })
+
+  it('current が 1件 → 参照の最古1件のみ', () => {
+    const current = [makeLogDate('2026-06-01')]
+    const aligned = alignToPeriod(current, prevLogs)
+    expect(aligned).toHaveLength(1)
+    expect(aligned[0].log_date).toBe('2026-05-27')
+  })
+
+  it('期間揃えにより前期比が -90% にならない（進行中月の検証）', () => {
+    // 今期: 6月3日間 (合計¥300,000)
+    const curr = [
+      makeLog({ log_date:'2026-06-03', total_sales:100000 }),
+      makeLog({ log_date:'2026-06-02', total_sales:100000 }),
+      makeLog({ log_date:'2026-06-01', total_sales:100000 }),
+    ]
+    // 前期: 5月の全営業日25件（合計¥2,500,000）→ 揃え後は先頭3日(¥300,000)
+    const prev = Array.from({ length: 25 }, (_, i) =>
+      makeLog({ log_date: `2026-05-${String(31 - i).padStart(2,'0')}`, total_sales: 100000 })
+    )
+    const aligned = alignToPeriod(curr, prev)
+    const comp = calcPeriodComparison(curr, aligned)
+    // 揃え後は同額なので ±0%（方向→）になるはず（-90%にならない）
+    expect(comp.sales.pct).toBe(0)
+    expect(comp.sales.direction).toBe('→')
   })
 })

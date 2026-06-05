@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useDailyLogStore } from '@/stores/dailyLog'
 import { useAuthStore } from '@/stores/auth'
@@ -10,12 +10,15 @@ import {
   calcPeriodComparison,
   calcRealCustomerMetrics,
   calcSufficiency,
+  alignToPeriod,
+  type CompareItem,
 } from '@/composables/useAnalytics'
 import {
   getPeriodRange,
   getPrevPeriod,
   getYoyPeriod,
   getTrendFetchRange,
+  jstTodayYmd,
   SCOPE_LABELS,
   type Scope,
 } from '@/composables/usePeriodRange'
@@ -27,44 +30,57 @@ const route = useRoute()
 const dailyLogStore = useDailyLogStore()
 const auth = useAuthStore()
 
-// ─── クエリパラメータ ─────────────────────────────────────────────
-const scope = computed<Scope>(() => (route.query.scope as Scope) ?? 'week')
-const offset = computed(() => Number(route.query.offset ?? 0))
+// ─── スコープ・オフセット（ページ内ローカル状態）──────────────────
+// 遷移元のスコープを初期値として引き継ぐが、ページ内の変更はここで完結
+const scope = ref<Scope>((route.query.scope as Scope) ?? 'week')
+const offset = ref(Number(route.query.offset ?? 0))
 
-// ─── 状態 ─────────────────────────────────────────────────────────
+const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
+
+// ─── ローカルデータ状態 ───────────────────────────────────────────
 const loading = ref(false)
 const loadError = ref('')
 const currentLogs = ref<DailyLog[]>([])
-const prevLogs = ref<DailyLog[]>([])
-const yoyLogs = ref<DailyLog[]>([])
-const trendLogs = ref<DailyLog[]>([])
+const prevLogs    = ref<DailyLog[]>([])
+const yoyLogs     = ref<DailyLog[]>([])
+const trendLogs   = ref<DailyLog[]>([])
 
 // ─── 期間 ─────────────────────────────────────────────────────────
 const currentPeriod = computed(() => getPeriodRange(scope.value, offset.value))
-const prevPeriod = computed(() => getPrevPeriod(scope.value, offset.value))
-const yoyPeriod = computed(() => getYoyPeriod(scope.value, offset.value))
+const prevPeriod    = computed(() => getPrevPeriod(scope.value, offset.value))
+const yoyPeriod     = computed(() => getYoyPeriod(scope.value, offset.value))
+
+const isInProgress = computed(() => currentPeriod.value.to >= jstTodayYmd())
+
+const alignedPrevLogs = computed(() =>
+  isInProgress.value ? alignToPeriod(currentLogs.value, prevLogs.value) : prevLogs.value,
+)
+const alignedYoyLogs = computed(() =>
+  isInProgress.value ? alignToPeriod(currentLogs.value, yoyLogs.value) : yoyLogs.value,
+)
 
 // ─── 集計 ─────────────────────────────────────────────────────────
-const currSum = computed(() => summarize(currentLogs.value))
-const prevSum = computed(() => summarize(prevLogs.value))
-const yoySum = computed(() => summarize(yoyLogs.value))
+const currSum   = computed(() => summarize(currentLogs.value))
+const prevSum   = computed(() => summarize(alignedPrevLogs.value))
+const yoySum    = computed(() => summarize(alignedYoyLogs.value))
+const currRcm   = computed(() => calcRealCustomerMetrics(currentLogs.value))
+const prevRcm   = computed(() => calcRealCustomerMetrics(alignedPrevLogs.value))
+const currShares = computed(() => courseShares(currSum.value))
+const prevShares = computed(() => courseShares(prevSum.value))
+const yoyShares  = computed(() => courseShares(yoySum.value))
 const sufficiency = computed(() =>
-  calcSufficiency(currentLogs.value, prevLogs.value, yoyLogs.value),
+  calcSufficiency(currentLogs.value, alignedPrevLogs.value, alignedYoyLogs.value),
 )
 const comparison = computed(() =>
   sufficiency.value.hasSufficientPrev
-    ? calcPeriodComparison(currentLogs.value, prevLogs.value)
+    ? calcPeriodComparison(currentLogs.value, alignedPrevLogs.value)
     : null,
 )
 const yoyComparison = computed(() =>
   sufficiency.value.hasSufficientYoy
-    ? calcPeriodComparison(currentLogs.value, yoyLogs.value)
+    ? calcPeriodComparison(currentLogs.value, alignedYoyLogs.value)
     : null,
 )
-const currRcm = computed(() => calcRealCustomerMetrics(currentLogs.value))
-const prevRcm = computed(() => calcRealCustomerMetrics(prevLogs.value))
-const currShares = computed(() => courseShares(currSum.value))
-const prevShares = computed(() => courseShares(prevSum.value))
 
 // ─── データ読み込み ────────────────────────────────────────────────
 async function loadData() {
@@ -82,57 +98,140 @@ async function loadData() {
     const [trendData, prevData, yoyData] = await Promise.all([
       dailyLogStore.fetchByDateRange(tenantId, tr.from, tr.to),
       dailyLogStore.fetchByDateRange(tenantId, pp.from, pp.to),
-      yp
-        ? dailyLogStore.fetchByDateRange(tenantId, yp.from, yp.to)
-        : Promise.resolve([] as DailyLog[]),
+      yp ? dailyLogStore.fetchByDateRange(tenantId, yp.from, yp.to) : Promise.resolve([] as DailyLog[]),
     ])
 
-    trendLogs.value = trendData
-    currentLogs.value = trendData.filter(
-      (l) => l.log_date >= cp.from && l.log_date <= cp.to,
-    )
-    prevLogs.value = prevData
-    yoyLogs.value = yoyData
+    trendLogs.value  = trendData
+    currentLogs.value = trendData.filter(l => l.log_date >= cp.from && l.log_date <= cp.to)
+    prevLogs.value   = prevData
+    yoyLogs.value    = yoyData
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : '読み込みに失敗しました'
   } finally {
     loading.value = false
-    // スクロール位置合わせ
     const anchor = route.query.anchor as string
     if (anchor) {
-      nextTick(() => {
-        document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
+      nextTick(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     }
   }
 }
 
 onMounted(loadData)
+watch([scope, offset], loadData)
 
 // ─── ユーティリティ ────────────────────────────────────────────────
-function pctBadgeClass(pct: number | null) {
-  if (pct === null) return 'text-neutral-400 dark:text-neutral-500'
-  if (pct > 3) return 'text-green-600 dark:text-green-400'
-  if (pct < -3) return 'text-red-500 dark:text-red-400'
+function pctClass(item: CompareItem | null | undefined) {
+  if (!item) return 'text-neutral-400 dark:text-neutral-500'
+  if (item.direction === '↑') return 'text-green-600 dark:text-green-400'
+  if (item.direction === '↓') return 'text-red-500 dark:text-red-400'
   return 'text-neutral-500 dark:text-neutral-400'
 }
 
-function pctLabel(pct: number | null): string {
-  if (pct === null) return '—'
-  return `${pct > 0 ? '+' : ''}${pct}%`
+function pctLabel(item: CompareItem | null | undefined): string {
+  if (!item) return '—'
+  const sign = item.pct > 0 ? '+' : ''
+  return `${item.direction}${sign}${item.pct}%`
 }
 
-// ドリンク推移バー表示用（直近10件）
-const drinkHistory = computed(() =>
-  [...trendLogs.value]
-    .filter((l) => l.log_date >= prevPeriod.value.from)
-    .slice(0, 15)
-    .reverse(),
-)
-function shortDate(ymd: string) {
-  const p = ymd.split('-')
-  return `${Number(p[1])}/${Number(p[2])}`
+/** 増減実数を単位付き文字列で返す */
+function diffLabel(item: CompareItem | null | undefined, unit: string): string {
+  if (!item || item.prev === 0) return ''
+  const sign = item.diff > 0 ? '+' : ''
+  if (unit === '¥') return `${sign}¥${Math.abs(item.diff).toLocaleString()}`
+  return `${sign}${item.diff.toLocaleString()}${unit}`
 }
+
+// ─── 比較行データ定義 ─────────────────────────────────────────────
+interface CompareRow {
+  id: string
+  label: string
+  currFmt: string
+  prevFmt: string | null
+  yoyFmt:  string | null
+  prevComp: CompareItem | null
+  yoyComp:  CompareItem | null
+  unit: string
+}
+
+const mainRows = computed<CompareRow[]>(() => {
+  const c = comparison.value
+  const y = yoyComparison.value
+  const hasPrev = sufficiency.value.hasSufficientPrev
+  const hasYoy  = sufficiency.value.hasSufficientYoy
+
+  return [
+    {
+      id: 'sales',
+      label: '合計売上',
+      currFmt: `¥${currSum.value.totalSales.toLocaleString()}`,
+      prevFmt: hasPrev ? `¥${prevSum.value.totalSales.toLocaleString()}` : null,
+      yoyFmt:  hasYoy  ? `¥${yoySum.value.totalSales.toLocaleString()}`  : null,
+      prevComp: c?.sales ?? null,
+      yoyComp:  y?.sales ?? null,
+      unit: '¥',
+    },
+    {
+      id: 'avgSales',
+      label: '日平均売上',
+      currFmt: `¥${currSum.value.avgSales.toLocaleString()}`,
+      prevFmt: hasPrev ? `¥${prevSum.value.avgSales.toLocaleString()}` : null,
+      yoyFmt:  hasYoy  ? `¥${yoySum.value.avgSales.toLocaleString()}`  : null,
+      prevComp: null,  // 日平均は絶対差よりも±%のみ参考値
+      yoyComp:  null,
+      unit: '¥',
+    },
+    {
+      id: 'skewers',
+      label: '合計串本数',
+      currFmt: `${currSum.value.totalSkewers.toLocaleString()}本`,
+      prevFmt: hasPrev ? `${prevSum.value.totalSkewers.toLocaleString()}本` : null,
+      yoyFmt:  hasYoy  ? `${yoySum.value.totalSkewers.toLocaleString()}本`  : null,
+      prevComp: c?.skewers ?? null,
+      yoyComp:  y?.skewers ?? null,
+      unit: '本',
+    },
+    {
+      id: 'groups',
+      label: '合計組数',
+      currFmt: currRcm.value.sampleCount > 0 ? `${currRcm.value.totalGroups}組` : '—',
+      prevFmt: hasPrev && prevRcm.value.sampleCount > 0 ? `${prevRcm.value.totalGroups}組` : null,
+      yoyFmt:  null,
+      prevComp: c?.realGroups.prev && c.realGroups.prev > 0 ? c.realGroups : null,
+      yoyComp:  null,
+      unit: '組',
+    },
+    {
+      id: 'guests',
+      label: '合計客数',
+      currFmt: currRcm.value.sampleCount > 0 ? `${currRcm.value.totalGuests}名` : '—',
+      prevFmt: hasPrev && prevRcm.value.sampleCount > 0 ? `${prevRcm.value.totalGuests}名` : null,
+      yoyFmt:  null,
+      prevComp: c?.realGuests.prev && c.realGuests.prev > 0 ? c.realGuests : null,
+      yoyComp:  null,
+      unit: '名',
+    },
+    {
+      id: 'unitPrice',
+      label: '客単価',
+      currFmt: currRcm.value.sampleCount > 0 ? `¥${currRcm.value.avgSpendPerGuest.toLocaleString()}` : '—',
+      prevFmt: hasPrev && prevRcm.value.sampleCount > 0 ? `¥${prevRcm.value.avgSpendPerGuest.toLocaleString()}` : null,
+      yoyFmt:  null,
+      prevComp: c?.realUnitPrice.prev && c.realUnitPrice.prev > 0 ? c.realUnitPrice : null,
+      yoyComp:  null,
+      unit: '¥',
+    },
+    {
+      id: 'drink',
+      label: 'ドリンク比率',
+      currFmt: `${currSum.value.avgDrink}%`,
+      prevFmt: hasPrev ? `${prevSum.value.avgDrink}%` : null,
+      yoyFmt:  hasYoy  ? `${yoySum.value.avgDrink}%`  : null,
+      prevComp: c?.drinkRatio ?? null,
+      yoyComp:  y?.drinkRatio ?? null,
+      unit: '%',
+    },
+  ]
+})
 </script>
 
 <template>
@@ -140,7 +239,7 @@ function shortDate(ymd: string) {
     <!-- ヘッダー -->
     <header class="bg-card dark:bg-card-dark border-b border-edge dark:border-edge-dark sticky top-0 z-10">
       <VisitingBanner />
-      <div class="max-w-lg mx-auto px-4 pt-3 pb-2.5 flex items-center gap-2">
+      <div class="max-w-lg mx-auto px-4 pt-3 pb-1 flex items-center gap-2">
         <button
           type="button"
           class="flex items-center gap-0.5 text-sm text-neutral-400 dark:text-neutral-500
@@ -153,162 +252,117 @@ function shortDate(ymd: string) {
           前期比較
         </h1>
       </div>
+      <!-- スコープタブ -->
+      <div class="max-w-lg mx-auto px-4 pb-2 flex gap-1.5">
+        <button
+          v-for="s in SCOPES"
+          :key="s"
+          type="button"
+          class="flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+          :class="scope === s
+            ? 'bg-brand-500 text-white border-brand-500'
+            : 'bg-card dark:bg-card-dark text-neutral-500 dark:text-neutral-400 border-edge dark:border-edge-dark'"
+          @click="scope = s; offset = 0"
+        >
+          {{ SCOPE_LABELS[s] }}
+        </button>
+      </div>
     </header>
 
     <main class="max-w-lg mx-auto px-4 py-4 space-y-4">
       <!-- 期間ヘッダー -->
-      <div class="bg-brand-500/10 dark:bg-brand-500/20 border border-brand-500/20 rounded-2xl px-4 py-3 space-y-1">
-        <div class="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
-          <span>{{ SCOPE_LABELS[scope] }}スコープ</span>
-        </div>
+      <div class="bg-brand-500/10 dark:bg-brand-500/20 border border-brand-500/20 rounded-2xl px-4 py-3">
         <div class="grid grid-cols-3 gap-2 text-center text-xs">
           <div>
             <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">今期</p>
-            <p class="font-semibold text-brand-600 dark:text-brand-400">{{ currentPeriod.label }}</p>
+            <p class="font-semibold text-brand-600 dark:text-brand-400 leading-tight">{{ currentPeriod.label }}</p>
+            <p v-if="isInProgress" class="text-[10px] text-brand-400 dark:text-brand-500 mt-0.5">進行中（{{ currentLogs.length }}日）</p>
           </div>
           <div>
             <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">前期</p>
-            <p class="font-medium text-neutral-600 dark:text-neutral-300">{{ prevPeriod.label }}</p>
+            <p class="font-medium text-neutral-600 dark:text-neutral-300 leading-tight">{{ prevPeriod.label }}</p>
+            <p v-if="isInProgress && sufficiency.hasSufficientPrev" class="text-[10px] text-neutral-400 mt-0.5">{{ alignedPrevLogs.length }}日分</p>
           </div>
           <div>
             <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">昨対</p>
-            <p v-if="yoyPeriod" class="font-medium text-neutral-600 dark:text-neutral-300">
-              {{ yoyPeriod.label }}
-            </p>
+            <p v-if="yoyPeriod" class="font-medium text-neutral-600 dark:text-neutral-300 leading-tight">{{ yoyPeriod.label }}</p>
             <p v-else class="text-neutral-300 dark:text-neutral-600">—</p>
+            <p v-if="isInProgress && yoyPeriod && sufficiency.hasSufficientYoy" class="text-[10px] text-neutral-400 mt-0.5">{{ alignedYoyLogs.length }}日分</p>
           </div>
         </div>
+        <p v-if="isInProgress" class="mt-2 text-[10px] text-center text-brand-500 dark:text-brand-400">
+          ※ 進行中のため前期・昨対も同経過日数で比較
+        </p>
       </div>
 
       <!-- ローディング -->
-      <p v-if="loading" class="text-center text-neutral-400 dark:text-neutral-500 py-12">
-        読み込み中...
-      </p>
-      <p
-        v-else-if="loadError"
-        class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3"
-      >
+      <p v-if="loading" class="text-center text-neutral-400 dark:text-neutral-500 py-12">読み込み中...</p>
+      <p v-else-if="loadError" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
         {{ loadError }}
       </p>
 
       <template v-else>
         <!-- ① 主要指標テーブル -->
-        <section
-          id="sales"
-          class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-        >
+        <section id="sales" class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
           <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
             主要指標
           </h2>
           <!-- 列ヘッダー -->
-          <div class="grid grid-cols-4 px-4 py-1.5 text-[10px] text-neutral-400 dark:text-neutral-500 border-b border-edge dark:border-edge-dark">
+          <div class="grid grid-cols-4 px-4 py-1.5 text-[10px] text-neutral-400 dark:text-neutral-500 border-b border-edge dark:border-edge-dark bg-black/[0.02] dark:bg-white/[0.02]">
             <span>指標</span>
             <span class="text-right">今期</span>
-            <span class="text-right">前期</span>
-            <span class="text-right">昨対</span>
+            <span class="text-right">前期 <span class="text-[9px]">(差)</span></span>
+            <span class="text-right">昨対 <span class="text-[9px]">(差)</span></span>
           </div>
           <!-- 各指標行 -->
-          <template v-for="row in [
-            {
-              label: '合計売上',
-              curr: `¥${currSum.totalSales.toLocaleString()}`,
-              prev: currSum.totalSales > 0 ? `¥${prevSum.totalSales.toLocaleString()}` : null,
-              prevPct: comparison?.sales.pct ?? null,
-              yoy: yoyComparison ? `¥${yoySum.totalSales.toLocaleString()}` : null,
-              yoyPct: yoyComparison?.sales.pct ?? null,
-            },
-            {
-              label: '日平均売上',
-              curr: `¥${currSum.avgSales.toLocaleString()}`,
-              prev: sufficiency.hasSufficientPrev ? `¥${prevSum.avgSales.toLocaleString()}` : null,
-              prevPct: null,
-              yoy: sufficiency.hasSufficientYoy ? `¥${yoySum.avgSales.toLocaleString()}` : null,
-              yoyPct: null,
-            },
-            {
-              label: '串本数',
-              curr: `${currSum.totalSkewers}本`,
-              prev: sufficiency.hasSufficientPrev ? `${prevSum.totalSkewers}本` : null,
-              prevPct: null,
-              yoy: sufficiency.hasSufficientYoy ? `${yoySum.totalSkewers}本` : null,
-              yoyPct: null,
-            },
-          ]" :key="row.label">
-            <div class="grid grid-cols-4 px-4 py-2.5 border-t border-edge dark:border-edge-dark items-center">
-              <span class="text-xs text-neutral-600 dark:text-neutral-300">{{ row.label }}</span>
-              <span class="text-xs font-semibold text-right tabular-nums text-neutral-900 dark:text-neutral-50">{{ row.curr }}</span>
-              <div class="text-right">
-                <template v-if="row.prev">
-                  <span class="text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">{{ row.prev }}</span>
-                  <span
-                    v-if="row.prevPct !== null"
-                    class="block text-[10px] font-semibold tabular-nums"
-                    :class="pctBadgeClass(row.prevPct)"
-                  >{{ pctLabel(row.prevPct) }}</span>
-                </template>
-                <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">データ不足</span>
-              </div>
-              <div class="text-right">
-                <template v-if="row.yoy">
-                  <span class="text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">{{ row.yoy }}</span>
-                  <span
-                    v-if="row.yoyPct !== null"
-                    class="block text-[10px] font-semibold tabular-nums"
-                    :class="pctBadgeClass(row.yoyPct)"
-                  >{{ pctLabel(row.yoyPct) }}</span>
-                </template>
-                <span v-else-if="yoyPeriod" class="text-[10px] text-neutral-300 dark:text-neutral-600">データなし</span>
-                <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">—</span>
-              </div>
+          <div
+            v-for="row in mainRows"
+            :key="row.id"
+            class="grid grid-cols-4 px-4 py-2.5 border-t border-edge dark:border-edge-dark items-start"
+          >
+            <!-- 指標名 -->
+            <span class="text-xs text-neutral-600 dark:text-neutral-300 pt-0.5">{{ row.label }}</span>
+
+            <!-- 今期 -->
+            <span class="text-xs font-semibold text-right tabular-nums text-neutral-900 dark:text-neutral-50">{{ row.currFmt }}</span>
+
+            <!-- 前期 + 差 -->
+            <div class="text-right space-y-0.5">
+              <template v-if="row.prevFmt">
+                <p class="text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">{{ row.prevFmt }}</p>
+                <p v-if="row.prevComp" class="text-[10px] font-semibold tabular-nums" :class="pctClass(row.prevComp)">
+                  {{ pctLabel(row.prevComp) }}
+                </p>
+                <p v-if="row.prevComp && diffLabel(row.prevComp, row.unit)" class="text-[9px] tabular-nums" :class="pctClass(row.prevComp)">
+                  {{ diffLabel(row.prevComp, row.unit) }}
+                </p>
+              </template>
+              <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">データ不足</span>
             </div>
-          </template>
-          <!-- 組数・客数・客単価 -->
-          <template v-if="currRcm.sampleCount > 0">
-            <div
-              v-for="row in [
-                {
-                  label: '組数/日',
-                  curr: `${currRcm.avgGroupsPerDay}組`,
-                  prev: prevRcm.sampleCount > 0 ? `${prevRcm.avgGroupsPerDay}組` : null,
-                  yoy: null,
-                },
-                {
-                  label: '客数/日',
-                  curr: `${currRcm.avgGuestsPerDay}名`,
-                  prev: prevRcm.sampleCount > 0 ? `${prevRcm.avgGuestsPerDay}名` : null,
-                  yoy: null,
-                },
-                {
-                  label: '客単価',
-                  curr: `¥${currRcm.avgSpendPerGuest.toLocaleString()}`,
-                  prev: prevRcm.sampleCount > 0 ? `¥${prevRcm.avgSpendPerGuest.toLocaleString()}` : null,
-                  yoy: null,
-                },
-              ]"
-              :key="row.label"
-              class="grid grid-cols-4 px-4 py-2.5 border-t border-edge dark:border-edge-dark items-center"
-            >
-              <span class="text-xs text-neutral-600 dark:text-neutral-300">{{ row.label }}</span>
-              <span class="text-xs font-semibold text-right tabular-nums text-neutral-900 dark:text-neutral-50">{{ row.curr }}</span>
-              <span class="text-[10px] tabular-nums text-right text-neutral-500 dark:text-neutral-400">
-                {{ row.prev ?? '—' }}
-              </span>
-              <span class="text-[10px] text-right text-neutral-300 dark:text-neutral-600">
-                {{ yoyPeriod ? 'データなし' : '—' }}
-              </span>
+
+            <!-- 昨対 + 差 -->
+            <div class="text-right space-y-0.5">
+              <template v-if="row.yoyFmt">
+                <p class="text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">{{ row.yoyFmt }}</p>
+                <p v-if="row.yoyComp" class="text-[10px] font-semibold tabular-nums" :class="pctClass(row.yoyComp)">
+                  {{ pctLabel(row.yoyComp) }}
+                </p>
+                <p v-if="row.yoyComp && diffLabel(row.yoyComp, row.unit)" class="text-[9px] tabular-nums" :class="pctClass(row.yoyComp)">
+                  {{ diffLabel(row.yoyComp, row.unit) }}
+                </p>
+              </template>
+              <span v-else-if="yoyPeriod" class="text-[10px] text-neutral-300 dark:text-neutral-600">データなし</span>
+              <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">—</span>
             </div>
-          </template>
+          </div>
         </section>
 
         <!-- ② コース内訳比較 -->
-        <section
-          id="courses"
-          class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-        >
+        <section id="courses" class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
           <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
             コース内訳
           </h2>
-          <div class="grid grid-cols-4 px-4 py-1.5 text-[10px] text-neutral-400 dark:text-neutral-500 border-b border-edge dark:border-edge-dark">
+          <div class="grid grid-cols-4 px-4 py-1.5 text-[10px] text-neutral-400 dark:text-neutral-500 border-b border-edge dark:border-edge-dark bg-black/[0.02] dark:bg-white/[0.02]">
             <span>コース</span>
             <span class="text-right">今期</span>
             <span class="text-right">前期</span>
@@ -317,7 +371,7 @@ function shortDate(ymd: string) {
           <div
             v-for="(c, i) in currShares"
             :key="c.label"
-            class="grid grid-cols-4 px-4 py-2.5 border-t border-edge dark:border-edge-dark items-center"
+            class="grid grid-cols-4 px-4 py-2 border-t border-edge dark:border-edge-dark items-center"
           >
             <span class="text-xs text-neutral-600 dark:text-neutral-300">{{ c.label }}</span>
             <div class="text-right">
@@ -332,66 +386,11 @@ function shortDate(ymd: string) {
               <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">—</span>
             </div>
             <div class="text-right">
-              <span v-if="yoyPeriod && sufficiency.hasSufficientYoy">
-                <p class="text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">
-                  {{ courseShares(yoySum)[i]?.count }}
-                </p>
-              </span>
-              <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">—</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- ③ ドリンク比率比較 + 推移 -->
-        <section
-          id="drink"
-          class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden"
-        >
-          <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-            ドリンク比率
-          </h2>
-          <!-- 今期 vs 前期 vs 昨対 バー -->
-          <div class="px-4 py-3 space-y-2.5">
-            <div
-              v-for="item in [
-                { label: '今期', avg: currSum.avgDrink, show: true },
-                { label: '前期', avg: prevSum.avgDrink, show: sufficiency.hasSufficientPrev },
-                { label: '昨対', avg: yoySum.avgDrink, show: sufficiency.hasSufficientYoy },
-              ]"
-              :key="item.label"
-              class="flex items-center gap-2"
-            >
-              <span class="w-7 text-[10px] text-neutral-500 dark:text-neutral-400 shrink-0">{{ item.label }}</span>
-              <template v-if="item.show">
-                <div class="flex-1 h-4 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                  <div
-                    class="h-full bg-green-500 rounded-full"
-                    :style="{ width: `${Math.min(item.avg, 100)}%` }"
-                  />
-                </div>
-                <span class="w-8 text-[10px] tabular-nums text-right text-neutral-600 dark:text-neutral-300">{{ item.avg }}%</span>
+              <template v-if="sufficiency.hasSufficientYoy && yoyPeriod">
+                <p class="text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">{{ yoyShares[i]?.count }}</p>
+                <p class="text-[10px] text-neutral-400">{{ yoyShares[i]?.rate }}%</p>
               </template>
-              <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">データなし</span>
-            </div>
-          </div>
-          <!-- 推移バー -->
-          <div v-if="drinkHistory.length > 0" class="border-t border-edge dark:border-edge-dark px-4 py-3">
-            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-2">推移（前期〜今期）</p>
-            <div class="space-y-1.5">
-              <div v-for="r in drinkHistory" :key="r.id" class="flex items-center gap-2">
-                <span class="w-8 text-[9px] text-neutral-400 dark:text-neutral-500 tabular-nums">
-                  {{ shortDate(r.log_date) }}
-                </span>
-                <div class="flex-1 h-3.5 bg-neutral-100 dark:bg-neutral-800 rounded overflow-hidden">
-                  <div
-                    class="h-full bg-green-500"
-                    :style="{ width: `${Math.min(r.drink_ratio, 100)}%` }"
-                  />
-                </div>
-                <span class="w-6 text-[9px] tabular-nums text-right text-neutral-400 dark:text-neutral-500">
-                  {{ r.drink_ratio }}%
-                </span>
-              </div>
+              <span v-else class="text-[10px] text-neutral-300 dark:text-neutral-600">—</span>
             </div>
           </div>
         </section>

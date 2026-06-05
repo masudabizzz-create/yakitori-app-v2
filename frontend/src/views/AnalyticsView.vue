@@ -12,6 +12,7 @@ import {
   calcRealCustomerMetrics,
   calcSalesTrendLine,
   calcSufficiency,
+  alignToPeriod,
   getAnalyticsSummary,
 } from '@/composables/useAnalytics'
 import {
@@ -19,6 +20,7 @@ import {
   getPrevPeriod,
   getYoyPeriod,
   getTrendFetchRange,
+  jstTodayYmd,
   SCOPE_LABELS,
   type Scope,
 } from '@/composables/usePeriodRange'
@@ -59,16 +61,27 @@ function toggleRow(id: string) {
 // ─── 期間計算 ─────────────────────────────────────────────────────
 const currentPeriod = computed(() => getPeriodRange(scope.value, offset.value))
 
+/** 今期が進行中か（末日が今日以降） */
+const isInProgress = computed(() => currentPeriod.value.to >= jstTodayYmd())
+
+/** 進行中なら前期・昨対ログを今期経過営業日数に揃える */
+const alignedPrevLogs = computed(() =>
+  isInProgress.value ? alignToPeriod(currentLogs.value, prevLogs.value) : prevLogs.value,
+)
+const alignedYoyLogs = computed(() =>
+  isInProgress.value ? alignToPeriod(currentLogs.value, yoyLogs.value) : yoyLogs.value,
+)
+
 // ─── 集計 ─────────────────────────────────────────────────────────
 const summary = computed(() => summarize(currentLogs.value))
 const shares = computed(() => courseShares(summary.value))
 const rcm = computed(() => calcRealCustomerMetrics(currentLogs.value))
 const sufficiency = computed(() =>
-  calcSufficiency(currentLogs.value, prevLogs.value, yoyLogs.value),
+  calcSufficiency(currentLogs.value, alignedPrevLogs.value, alignedYoyLogs.value),
 )
 const comparison = computed(() =>
   sufficiency.value.hasSufficientPrev
-    ? calcPeriodComparison(currentLogs.value, prevLogs.value)
+    ? calcPeriodComparison(currentLogs.value, alignedPrevLogs.value)
     : null,
 )
 const trendData = computed(() => calcSalesTrendLine(trendLogs.value, scope.value))
@@ -77,9 +90,9 @@ const trendData = computed(() => calcSalesTrendLine(trendLogs.value, scope.value
 const analyticsSummaryJson = computed(() =>
   getAnalyticsSummary(
     currentLogs.value,
-    prevLogs.value,
+    alignedPrevLogs.value,
     scope.value,
-    yoyLogs.value,
+    alignedYoyLogs.value,
     currentPeriod.value.label,
   ),
 )
@@ -384,7 +397,6 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
               <p class="text-xs text-neutral-400 dark:text-neutral-500">
                 平均 ¥{{ summary.avgSales.toLocaleString() }}/日
               </p>
-              <!-- 前期比バッジ（タップで比較ページへ） -->
               <button
                 v-if="comparison"
                 type="button"
@@ -394,10 +406,7 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
               >
                 {{ comparison.sales.direction }}{{ comparison.sales.pct > 0 ? '+' : '' }}{{ comparison.sales.pct }}%
               </button>
-              <span
-                v-else-if="currentLogs.length > 0"
-                class="inline-block text-[10px] text-neutral-300 dark:text-neutral-600"
-              >データ不足</span>
+              <span v-else-if="currentLogs.length > 0" class="inline-block text-[10px] text-neutral-300 dark:text-neutral-600">データ不足</span>
             </div>
             <!-- 合計串本数 -->
             <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3 space-y-1">
@@ -408,6 +417,15 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
               <p class="text-xs text-neutral-400 dark:text-neutral-500">
                 平均 {{ summary.avgSkewers }}本/日
               </p>
+              <button
+                v-if="comparison"
+                type="button"
+                class="inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full border transition-opacity hover:opacity-80"
+                :class="compBadgeClass(comparison.skewers.direction)"
+                @click="goCompare('sales')"
+              >
+                {{ comparison.skewers.direction }}{{ comparison.skewers.pct > 0 ? '+' : '' }}{{ comparison.skewers.pct }}%
+              </button>
             </div>
           </div>
 
@@ -422,6 +440,15 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
                 {{ rcm.totalGroups }}<span class="text-[10px] text-neutral-400">組</span>
               </p>
               <p class="text-[10px] text-neutral-400 dark:text-neutral-500">平均 {{ rcm.avgGroupsPerDay }}組/日</p>
+              <button
+                v-if="comparison && comparison.realGroups.prev > 0"
+                type="button"
+                class="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border transition-opacity hover:opacity-80"
+                :class="compBadgeClass(comparison.realGroups.direction)"
+                @click="goCompare('sales')"
+              >
+                {{ comparison.realGroups.direction }}{{ comparison.realGroups.pct > 0 ? '+' : '' }}{{ comparison.realGroups.pct }}%
+              </button>
             </div>
             <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-2.5 text-center space-y-0.5">
               <p class="text-[10px] text-neutral-400 dark:text-neutral-500">合計客数</p>
@@ -429,12 +456,30 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
                 {{ rcm.totalGuests }}<span class="text-[10px] text-neutral-400">名</span>
               </p>
               <p class="text-[10px] text-neutral-400 dark:text-neutral-500">平均 {{ rcm.avgGuestsPerDay }}名/日</p>
+              <button
+                v-if="comparison && comparison.realGuests.prev > 0"
+                type="button"
+                class="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border transition-opacity hover:opacity-80"
+                :class="compBadgeClass(comparison.realGuests.direction)"
+                @click="goCompare('sales')"
+              >
+                {{ comparison.realGuests.direction }}{{ comparison.realGuests.pct > 0 ? '+' : '' }}{{ comparison.realGuests.pct }}%
+              </button>
             </div>
             <div class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-3 py-2.5 text-center space-y-0.5">
               <p class="text-[10px] text-neutral-400 dark:text-neutral-500">客単価</p>
               <p class="text-lg font-bold tabular-nums text-brand-500">
                 ¥{{ rcm.avgSpendPerGuest.toLocaleString() }}
               </p>
+              <button
+                v-if="comparison && comparison.realUnitPrice.prev > 0"
+                type="button"
+                class="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border transition-opacity hover:opacity-80"
+                :class="compBadgeClass(comparison.realUnitPrice.direction)"
+                @click="goCompare('sales')"
+              >
+                {{ comparison.realUnitPrice.direction }}{{ comparison.realUnitPrice.pct > 0 ? '+' : '' }}{{ comparison.realUnitPrice.pct }}%
+              </button>
             </div>
           </div>
 

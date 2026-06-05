@@ -123,6 +123,8 @@ export function courseShares(summary: AnalyticsSummary): CourseShare[] {
 export interface CompareItem {
   current: number
   prev: number
+  /** 増減の実数値（current - prev） */
+  diff: number
   /** 増減率 % (正=増加, 負=減少) */
   pct: number
   direction: '↑' | '↓' | '→'
@@ -130,41 +132,89 @@ export interface CompareItem {
 
 export interface PeriodComparison {
   sales: CompareItem
+  skewers: CompareItem
   customers: CompareItem
   unitPrice: CompareItem
+  /** 実入力組数（groups_count）の比較 */
+  realGroups: CompareItem
+  /** 実入力客数（guests_count）の比較 */
+  realGuests: CompareItem
+  /** 実客単価（売上 ÷ 実客数）の比較 */
+  realUnitPrice: CompareItem
+  /** ドリンク比率平均の比較 */
+  drinkRatio: CompareItem
 }
 
 function mkCompareItem(curr: number, prev: number): CompareItem {
-  if (prev === 0) return { current: curr, prev, pct: 0, direction: '→' }
-  const pct = Math.round(((curr - prev) / prev) * 100)
+  const diff = curr - prev
+  if (prev === 0) return { current: curr, prev, diff, pct: 0, direction: '→' }
+  const pct = Math.round((diff / prev) * 100)
   const direction: '↑' | '↓' | '→' = pct > 3 ? '↑' : pct < -3 ? '↓' : '→'
-  return { current: curr, prev, pct, direction }
+  return { current: curr, prev, diff, pct, direction }
 }
 
 /**
- * 今期ログ / 前期ログ を比較して増減率を返す。
- * logs は「新しい順」を前提とするが、ここでは集計のみのため順不同でも可。
+ * 今期ログ / 前期ログ を比較して増減率・増減実数を返す。
+ * logs は「新しい順」を前提とするが、集計のみのため順不同でも可。
  */
 export function calcPeriodComparison(
   currentLogs: DailyLog[],
   prevLogs: DailyLog[],
 ): PeriodComparison {
-  const totalSales = (ls: DailyLog[]) => ls.reduce((a, r) => a + r.total_sales, 0)
-  const totalCustomers = (ls: DailyLog[]) =>
+  const sumSales     = (ls: DailyLog[]) => ls.reduce((a, r) => a + r.total_sales, 0)
+  const sumSkewers   = (ls: DailyLog[]) => ls.reduce((a, r) => a + r.total_skewers, 0)
+  const sumCourses   = (ls: DailyLog[]) =>
     ls.reduce((a, r) => a + r.course_casual + r.course_standard + r.course_premium, 0)
+  const sumGroups    = (ls: DailyLog[]) =>
+    ls.filter(r => r.groups_count != null).reduce((a, r) => a + (r.groups_count ?? 0), 0)
+  const sumGuests    = (ls: DailyLog[]) =>
+    ls.filter(r => r.guests_count != null).reduce((a, r) => a + (r.guests_count ?? 0), 0)
+  const avgDrink     = (ls: DailyLog[]) =>
+    ls.length > 0 ? Math.round(ls.reduce((a, r) => a + r.drink_ratio, 0) / ls.length) : 0
 
-  const currSales = totalSales(currentLogs)
-  const prevSales = totalSales(prevLogs)
-  const currCust = totalCustomers(currentLogs)
-  const prevCust = totalCustomers(prevLogs)
-  const currUnit = currCust > 0 ? Math.round(currSales / currCust) : 0
-  const prevUnit = prevCust > 0 ? Math.round(prevSales / prevCust) : 0
+  const currSales = sumSales(currentLogs);      const prevSales = sumSales(prevLogs)
+  const currSkew  = sumSkewers(currentLogs);    const prevSkew  = sumSkewers(prevLogs)
+  const currCust  = sumCourses(currentLogs);    const prevCust  = sumCourses(prevLogs)
+  const currGrp   = sumGroups(currentLogs);     const prevGrp   = sumGroups(prevLogs)
+  const currGst   = sumGuests(currentLogs);     const prevGst   = sumGuests(prevLogs)
+  const currUnit  = currCust > 0 ? Math.round(currSales / currCust) : 0
+  const prevUnit  = prevCust > 0 ? Math.round(prevSales / prevCust) : 0
+  const currRUnit = currGst  > 0 ? Math.round(currSales / currGst)  : 0
+  const prevRUnit = prevGst  > 0 ? Math.round(prevSales / prevGst)  : 0
 
   return {
-    sales: mkCompareItem(currSales, prevSales),
-    customers: mkCompareItem(currCust, prevCust),
-    unitPrice: mkCompareItem(currUnit, prevUnit),
+    sales:        mkCompareItem(currSales, prevSales),
+    skewers:      mkCompareItem(currSkew,  prevSkew),
+    customers:    mkCompareItem(currCust,  prevCust),
+    unitPrice:    mkCompareItem(currUnit,  prevUnit),
+    realGroups:   mkCompareItem(currGrp,   prevGrp),
+    realGuests:   mkCompareItem(currGst,   prevGst),
+    realUnitPrice:mkCompareItem(currRUnit, prevRUnit),
+    drinkRatio:   mkCompareItem(avgDrink(currentLogs), avgDrink(prevLogs)),
   }
+}
+
+// ─── 期間揃え ─────────────────────────────────────────────────────
+
+/**
+ * 進行中の今期ログに合わせて参照期間ログを先頭 N 営業日に揃える。
+ *
+ * 使い方:
+ *   const aligned = alignToPeriod(currentLogs, prevLogs)
+ *
+ * - logs は log_date 降順を前提（fetchByDateRange の出力と同じ）。
+ * - 今期が完了済みの場合は呼び出し側でそのまま渡す（揃え不要）。
+ * - currentLogs.length >= referenceLogs.length の場合はそのまま返す。
+ *
+ * 降順ソートなので末尾 N 件 = 参照期間の "先頭" N 営業日（最古 N 件）。
+ */
+export function alignToPeriod(
+  currentLogs: DailyLog[],
+  referenceLogs: DailyLog[],
+): DailyLog[] {
+  const n = currentLogs.length
+  if (n === 0 || referenceLogs.length <= n) return referenceLogs
+  return referenceLogs.slice(-n)
 }
 
 // ─── 客数・客単価 ─────────────────────────────────────────────────
