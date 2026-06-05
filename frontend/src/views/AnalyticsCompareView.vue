@@ -159,6 +159,32 @@ watch(scope, () => {
   yoyOffset.value = null
 })
 
+// ─── 期間ナビゲーション操作 ─────────────────────────────────────────
+function goCurrentForward() {
+  if (offset.value > 0) offset.value--
+}
+
+function goPrevBack() {
+  prevOffset.value = (prevOffset.value ?? defaultPrevOffset.value) + 1
+}
+
+function goPrevForward() {
+  const current = prevOffset.value ?? defaultPrevOffset.value
+  if (current > 0) prevOffset.value = current - 1
+}
+
+function goYoyBack() {
+  const step = scope.value === 'month' ? 12 : 4
+  const base = yoyOffset.value ?? defaultYoyOffset.value
+  if (base !== null) yoyOffset.value = base + step
+}
+
+function goYoyForward() {
+  const step = scope.value === 'month' ? 12 : 4
+  const current = yoyOffset.value ?? defaultYoyOffset.value
+  if (current !== null && current > 0) yoyOffset.value = current - step
+}
+
 // ─── ユーティリティ ────────────────────────────────────────────────
 function pctClass(item: CompareItem | null | undefined) {
   if (!item) return 'text-neutral-400 dark:text-neutral-500'
@@ -335,7 +361,7 @@ const mainRows = computed<CompareRow[]>(() => {
             ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
             : 'text-neutral-200 dark:text-neutral-700 cursor-not-allowed'"
           :disabled="offset === 0"
-          @click="if (offset > 0) offset--"
+          @click="goCurrentForward"
         >
           <ChevronRight :size="16" />
         </button>
@@ -367,7 +393,7 @@ const mainRows = computed<CompareRow[]>(() => {
               type="button"
               class="w-6 h-6 rounded flex items-center justify-center text-neutral-500 dark:text-neutral-400
                      hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-              @click="prevOffset = (prevOffset ?? defaultPrevOffset) + 1"
+              @click="goPrevBack"
             >
               <ChevronLeft :size="14" />
             </button>
@@ -386,7 +412,7 @@ const mainRows = computed<CompareRow[]>(() => {
                 ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 : 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'"
               :disabled="(prevOffset ?? defaultPrevOffset) === 0"
-              @click="if ((prevOffset ?? defaultPrevOffset) > 0) prevOffset = (prevOffset ?? defaultPrevOffset) - 1"
+              @click="goPrevForward"
             >
               <ChevronRight :size="14" />
             </button>
@@ -401,7 +427,7 @@ const mainRows = computed<CompareRow[]>(() => {
                 type="button"
                 class="w-6 h-6 rounded flex items-center justify-center text-neutral-500 dark:text-neutral-400
                        hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-                @click="const step = scope === 'month' ? 12 : 4; yoyOffset = (yoyOffset ?? defaultYoyOffset) + step"
+                @click="goYoyBack"
               >
                 <ChevronLeft :size="14" />
               </button>
@@ -416,11 +442,11 @@ const mainRows = computed<CompareRow[]>(() => {
               <button
                 type="button"
                 class="w-6 h-6 rounded flex items-center justify-center transition-colors"
-                :class="(yoyOffset ?? defaultYoyOffset) > 0
+                :class="((yoyOffset ?? defaultYoyOffset) ?? 0) > 0
                   ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                   : 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'"
-                :disabled="(yoyOffset ?? defaultYoyOffset) === 0"
-                @click="const step = scope === 'month' ? 12 : 4; const base = yoyOffset ?? defaultYoyOffset; if (base > 0) yoyOffset = base - step"
+                :disabled="((yoyOffset ?? defaultYoyOffset) ?? 0) === 0"
+                @click="goYoyForward"
               >
                 <ChevronRight :size="14" />
               </button>
@@ -437,20 +463,20 @@ const mainRows = computed<CompareRow[]>(() => {
       <!-- 前期ピッカー -->
       <PeriodPicker
         :scope="scope"
-        v-model="prevOffset"
+        :modelValue="prevOffset ?? defaultPrevOffset"
         :open="showPrevPicker"
         @cancel="showPrevPicker = false"
-        @update:modelValue="showPrevPicker = false"
+        @update:modelValue="(val: number) => { prevOffset = val; showPrevPicker = false }"
       />
 
       <!-- 昨対ピッカー（月・四半期のみ） -->
       <PeriodPicker
         v-if="scope === 'month' || scope === 'quarter'"
         :scope="scope"
-        v-model="yoyOffset"
+        :modelValue="yoyOffset ?? defaultYoyOffset ?? 0"
         :open="showYoyPicker"
         @cancel="showYoyPicker = false"
-        @update:modelValue="showYoyPicker = false"
+        @update:modelValue="(val: number) => { yoyOffset = val; showYoyPicker = false }"
       />
 
       <!-- ローディング -->

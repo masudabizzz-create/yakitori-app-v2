@@ -7,7 +7,6 @@ import {
   jstTodayYmd,
   parseYmd,
   toYmd,
-  addDays,
   dowOf,
   getPeriodRange,
 } from '@/composables/usePeriodRange'
@@ -120,16 +119,7 @@ function daysUntilToday(ymd: string): number {
   )
 }
 function dayOffset(ymd: string): number  { return daysUntilToday(ymd) }
-function weekOffset(ymd: string): number {
-  const dow = dowOf(ymd)
-  const daysFromMon = dow === 0 ? 6 : dow - 1
-  const weekMon = addDays(ymd, -daysFromMon)
-  const todayDow = dowOf(today)
-  const todayDaysFromMon = todayDow === 0 ? 6 : todayDow - 1
-  const todayMon = addDays(today, -todayDaysFromMon)
-  return Math.round(daysUntilToday(weekMon) - daysUntilToday(todayMon) + daysUntilToday(todayMon) - daysUntilToday(weekMon))
-  // simplified:
-}
+
 function monthOffset(y: number, m: number): number {
   return (todayY - y) * 12 + (todayM - m)
 }
@@ -138,18 +128,6 @@ function quarterOffset(y: number, q: number): number {
   return (todayY - y) * 4 + (curQ - q)
 }
 
-// weekOffset を正しく実装
-function weekOffsetOf(ymd: string): number {
-  const dow = dowOf(ymd)
-  const daysFromMon = dow === 0 ? 6 : dow - 1
-  const weekMon = addDays(ymd, -daysFromMon)
-  const todayDow = dowOf(today)
-  const todayDaysFromMon = todayDow === 0 ? 6 : todayDow - 1
-  const todayMon = addDays(today, -todayDaysFromMon)
-  return Math.round(daysUntilToday(weekMon) / 7 - daysUntilToday(todayMon) / 7 + (daysUntilToday(todayMon) - daysUntilToday(weekMon)) / 7)
-}
-
-// さらに簡潔に
 function weekOffsetOfDate(ymd: string): number {
   const [y, m, d] = parseYmd(ymd)
   const dow = dowOf(ymd)
