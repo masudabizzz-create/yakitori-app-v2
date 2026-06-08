@@ -453,10 +453,11 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
                 type="button"
                 class="inline-flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full border transition-opacity hover:opacity-80"
                 :class="compBadgeClass(comparison.skewers.direction)"
-                @click="goCompare('sales')"
+                @click="goCompare('skewers')"
               >
                 {{ comparison.skewers.direction }}{{ comparison.skewers.pct > 0 ? '+' : '' }}{{ comparison.skewers.pct }}%
               </button>
+              <span v-else-if="currentLogs.length > 0" class="inline-block text-[10px] text-neutral-300 dark:text-neutral-600">データ不足</span>
             </div>
           </div>
 
@@ -476,7 +477,7 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
                 type="button"
                 class="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border transition-opacity hover:opacity-80"
                 :class="compBadgeClass(comparison.realGroups.direction)"
-                @click="goCompare('sales')"
+                @click="goCompare('groups')"
               >
                 {{ comparison.realGroups.direction }}{{ comparison.realGroups.pct > 0 ? '+' : '' }}{{ comparison.realGroups.pct }}%
               </button>
@@ -492,7 +493,7 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
                 type="button"
                 class="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border transition-opacity hover:opacity-80"
                 :class="compBadgeClass(comparison.realGuests.direction)"
-                @click="goCompare('sales')"
+                @click="goCompare('guests')"
               >
                 {{ comparison.realGuests.direction }}{{ comparison.realGuests.pct > 0 ? '+' : '' }}{{ comparison.realGuests.pct }}%
               </button>
@@ -507,7 +508,7 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
                 type="button"
                 class="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border transition-opacity hover:opacity-80"
                 :class="compBadgeClass(comparison.realUnitPrice.direction)"
-                @click="goCompare('sales')"
+                @click="goCompare('unitPrice')"
               >
                 {{ comparison.realUnitPrice.direction }}{{ comparison.realUnitPrice.pct > 0 ? '+' : '' }}{{ comparison.realUnitPrice.pct }}%
               </button>
@@ -526,20 +527,20 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
               </p>
             </div>
             <!-- SVG 折れ線 -->
-            <div class="relative">
-              <!-- Y軸ラベル（SVG外に配置） -->
-              <div class="absolute left-0 top-0 bottom-0 flex flex-col justify-between pr-1" style="width: 32px;">
+            <div class="flex gap-1">
+              <!-- Y軸ラベル -->
+              <div class="flex flex-col justify-between shrink-0" style="width: 32px;">
                 <span
                   v-for="line in chartGridLines.slice().reverse()"
                   :key="line.value"
                   class="text-[9px] text-neutral-400 dark:text-neutral-500 tabular-nums text-right"
                 >{{ line.label }}</span>
               </div>
+              <!-- グラフ本体 -->
               <svg
                 :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
-                class="w-full overflow-visible"
+                class="flex-1"
                 preserveAspectRatio="none"
-                style="margin-left: 36px;"
               >
                 <defs>
                   <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
@@ -584,14 +585,17 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
               </svg>
             </div>
             <!-- X軸ラベル（間引き表示） -->
-            <div class="flex justify-between mt-1 px-0.5" style="margin-left: 36px;">
-              <template v-for="(pt, i) in trendData" :key="i">
-                <span
-                  v-if="i === 0 || i === trendData.length - 1 || (trendData.length <= 8) || i % Math.ceil(trendData.length / 6) === 0"
-                  class="text-[9px] text-neutral-400 dark:text-neutral-500 tabular-nums"
-                  :style="{ opacity: pt.count < 3 ? 0.5 : 1 }"
-                >{{ pt.label }}</span>
-              </template>
+            <div class="flex gap-1 mt-1">
+              <div class="shrink-0" style="width: 32px;"></div>
+              <div class="flex justify-between flex-1 px-0.5">
+                <template v-for="(pt, i) in trendData" :key="i">
+                  <span
+                    v-if="i === 0 || i === trendData.length - 1 || (trendData.length <= 8) || i % Math.ceil(trendData.length / 6) === 0"
+                    class="text-[9px] text-neutral-400 dark:text-neutral-500 tabular-nums"
+                    :style="{ opacity: pt.count < 3 ? 0.5 : 1 }"
+                  >{{ pt.label }}</span>
+                </template>
+              </div>
             </div>
           </section>
 
