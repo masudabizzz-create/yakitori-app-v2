@@ -123,6 +123,8 @@ export function courseShares(summary: AnalyticsSummary): CourseShare[] {
 export interface CompareItem {
   current: number
   prev: number
+  /** 増減の実数値（current - prev） */
+  diff: number
   /** 増減率 % (正=増加, 負=減少) */
   pct: number
   direction: '↑' | '↓' | '→'
@@ -130,41 +132,89 @@ export interface CompareItem {
 
 export interface PeriodComparison {
   sales: CompareItem
+  skewers: CompareItem
   customers: CompareItem
   unitPrice: CompareItem
+  /** 実入力組数（groups_count）の比較 */
+  realGroups: CompareItem
+  /** 実入力客数（guests_count）の比較 */
+  realGuests: CompareItem
+  /** 実客単価（売上 ÷ 実客数）の比較 */
+  realUnitPrice: CompareItem
+  /** ドリンク比率平均の比較 */
+  drinkRatio: CompareItem
 }
 
 function mkCompareItem(curr: number, prev: number): CompareItem {
-  if (prev === 0) return { current: curr, prev, pct: 0, direction: '→' }
-  const pct = Math.round(((curr - prev) / prev) * 100)
+  const diff = curr - prev
+  if (prev === 0) return { current: curr, prev, diff, pct: 0, direction: '→' }
+  const pct = Math.round((diff / prev) * 100)
   const direction: '↑' | '↓' | '→' = pct > 3 ? '↑' : pct < -3 ? '↓' : '→'
-  return { current: curr, prev, pct, direction }
+  return { current: curr, prev, diff, pct, direction }
 }
 
 /**
- * 今期ログ / 前期ログ を比較して増減率を返す。
- * logs は「新しい順」を前提とするが、ここでは集計のみのため順不同でも可。
+ * 今期ログ / 前期ログ を比較して増減率・増減実数を返す。
+ * logs は「新しい順」を前提とするが、集計のみのため順不同でも可。
  */
 export function calcPeriodComparison(
   currentLogs: DailyLog[],
   prevLogs: DailyLog[],
 ): PeriodComparison {
-  const totalSales = (ls: DailyLog[]) => ls.reduce((a, r) => a + r.total_sales, 0)
-  const totalCustomers = (ls: DailyLog[]) =>
+  const sumSales     = (ls: DailyLog[]) => ls.reduce((a, r) => a + r.total_sales, 0)
+  const sumSkewers   = (ls: DailyLog[]) => ls.reduce((a, r) => a + r.total_skewers, 0)
+  const sumCourses   = (ls: DailyLog[]) =>
     ls.reduce((a, r) => a + r.course_casual + r.course_standard + r.course_premium, 0)
+  const sumGroups    = (ls: DailyLog[]) =>
+    ls.filter(r => r.groups_count != null).reduce((a, r) => a + (r.groups_count ?? 0), 0)
+  const sumGuests    = (ls: DailyLog[]) =>
+    ls.filter(r => r.guests_count != null).reduce((a, r) => a + (r.guests_count ?? 0), 0)
+  const avgDrink     = (ls: DailyLog[]) =>
+    ls.length > 0 ? Math.round(ls.reduce((a, r) => a + r.drink_ratio, 0) / ls.length) : 0
 
-  const currSales = totalSales(currentLogs)
-  const prevSales = totalSales(prevLogs)
-  const currCust = totalCustomers(currentLogs)
-  const prevCust = totalCustomers(prevLogs)
-  const currUnit = currCust > 0 ? Math.round(currSales / currCust) : 0
-  const prevUnit = prevCust > 0 ? Math.round(prevSales / prevCust) : 0
+  const currSales = sumSales(currentLogs);      const prevSales = sumSales(prevLogs)
+  const currSkew  = sumSkewers(currentLogs);    const prevSkew  = sumSkewers(prevLogs)
+  const currCust  = sumCourses(currentLogs);    const prevCust  = sumCourses(prevLogs)
+  const currGrp   = sumGroups(currentLogs);     const prevGrp   = sumGroups(prevLogs)
+  const currGst   = sumGuests(currentLogs);     const prevGst   = sumGuests(prevLogs)
+  const currUnit  = currCust > 0 ? Math.round(currSales / currCust) : 0
+  const prevUnit  = prevCust > 0 ? Math.round(prevSales / prevCust) : 0
+  const currRUnit = currGst  > 0 ? Math.round(currSales / currGst)  : 0
+  const prevRUnit = prevGst  > 0 ? Math.round(prevSales / prevGst)  : 0
 
   return {
-    sales: mkCompareItem(currSales, prevSales),
-    customers: mkCompareItem(currCust, prevCust),
-    unitPrice: mkCompareItem(currUnit, prevUnit),
+    sales:        mkCompareItem(currSales, prevSales),
+    skewers:      mkCompareItem(currSkew,  prevSkew),
+    customers:    mkCompareItem(currCust,  prevCust),
+    unitPrice:    mkCompareItem(currUnit,  prevUnit),
+    realGroups:   mkCompareItem(currGrp,   prevGrp),
+    realGuests:   mkCompareItem(currGst,   prevGst),
+    realUnitPrice:mkCompareItem(currRUnit, prevRUnit),
+    drinkRatio:   mkCompareItem(avgDrink(currentLogs), avgDrink(prevLogs)),
   }
+}
+
+// ─── 期間揃え ─────────────────────────────────────────────────────
+
+/**
+ * 進行中の今期ログに合わせて参照期間ログを先頭 N 営業日に揃える。
+ *
+ * 使い方:
+ *   const aligned = alignToPeriod(currentLogs, prevLogs)
+ *
+ * - logs は log_date 降順を前提（fetchByDateRange の出力と同じ）。
+ * - 今期が完了済みの場合は呼び出し側でそのまま渡す（揃え不要）。
+ * - currentLogs.length >= referenceLogs.length の場合はそのまま返す。
+ *
+ * 降順ソートなので末尾 N 件 = 参照期間の "先頭" N 営業日（最古 N 件）。
+ */
+export function alignToPeriod(
+  currentLogs: DailyLog[],
+  referenceLogs: DailyLog[],
+): DailyLog[] {
+  const n = currentLogs.length
+  if (n === 0 || referenceLogs.length <= n) return referenceLogs
+  return referenceLogs.slice(-n)
 }
 
 // ─── 客数・客単価 ─────────────────────────────────────────────────
@@ -290,52 +340,186 @@ export function calcRealCustomerMetrics(logs: DailyLog[]): RealCustomerMetrics {
   }
 }
 
-// ─── AI搭載準備 ───────────────────────────────────────────────────
+// ─── 売上推移折れ線グラフ ─────────────────────────────────────────
+
+import type { Scope } from './usePeriodRange'
+import { addDays } from './usePeriodRange'
+
+export interface TrendPoint {
+  label: string
+  avgSales: number
+  count: number // サンプル日数（グレーアウト判定用）
+}
+
+/**
+ * ログをスコープ単位でグループ化して 1日あたり平均売上を返す。
+ * 折れ線グラフの横軸データとして使用する。
+ * logs は log_date 降順を想定しているが、内部でソートするため順不問。
+ */
+export function calcSalesTrendLine(logs: DailyLog[], scope: Scope): TrendPoint[] {
+  if (logs.length === 0) return []
+
+  const groups = new Map<string, { totalSales: number; count: number; label: string }>()
+
+  for (const log of logs) {
+    const parts = log.log_date.split('-')
+    const y = Number(parts[0])
+    const m = Number(parts[1])
+    const d = Number(parts[2])
+    let key: string
+    let label: string
+
+    switch (scope) {
+      case 'day':
+        key = log.log_date
+        label = `${m}/${d}`
+        break
+      case 'week': {
+        const dow = new Date(y, m - 1, d).getDay()
+        const daysFromMon = dow === 0 ? 6 : dow - 1
+        const weekStart = addDays(log.log_date, -daysFromMon)
+        key = weekStart
+        const [, wm, wd] = weekStart.split('-').map(Number)
+        label = `${wm}/${wd}`
+        break
+      }
+      case 'month':
+        key = `${y}-${String(m).padStart(2, '0')}`
+        label = `${m}月`
+        break
+      case 'quarter': {
+        const q = Math.ceil(m / 3)
+        key = `${y}-Q${q}`
+        label = `${y}Q${q}`
+        break
+      }
+      case 'year':
+        key = String(y)
+        label = `${y}年`
+        break
+    }
+
+    const existing = groups.get(key)
+    if (existing) {
+      existing.totalSales += log.total_sales
+      existing.count++
+    } else {
+      groups.set(key, { totalSales: log.total_sales, count: 1, label })
+    }
+  }
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([, { totalSales, count, label }]) => ({
+      label,
+      avgSales: count > 0 ? Math.round(totalSales / count) : 0,
+      count,
+    }))
+}
+
+// ─── データ十分性チェック ─────────────────────────────────────────
+
+export interface SufficiencyResult {
+  /** 前期比較を表示してよいか */
+  hasSufficientPrev: boolean
+  /** 昨対を表示してよいか */
+  hasSufficientYoy: boolean
+}
+
+/**
+ * 前期・昨対のデータが比較表示に十分かを判定する。
+ * - 前期: min(current × 0.5, 3) 未満 → 不十分
+ * - 昨対: yoyLogs が空 → 不十分
+ */
+export function calcSufficiency(
+  currentLogs: DailyLog[],
+  prevLogs: DailyLog[],
+  yoyLogs: DailyLog[] = [],
+): SufficiencyResult {
+  const threshold = Math.min(Math.ceil(currentLogs.length * 0.5), 3)
+  return {
+    hasSufficientPrev: prevLogs.length >= threshold,
+    hasSufficientYoy: yoyLogs.length >= 2,
+  }
+}
+
+// ─── AI搭載準備（拡張版） ────────────────────────────────────────
 
 export interface AnalyticsSummaryJson {
   generated_at: string
-  period: { days: number; from: string; to: string }
-  sales: { total: number; daily_avg: number; vs_prev_period_pct: number | null }
-  customers: { total: number; avg_per_day: number; avg_unit_price: number }
+  scope: Scope
+  period: { from: string; to: string; label: string; operating_days: number }
+  sales: {
+    total: number
+    daily_avg: number
+    vs_prev_pct: number | null
+    vs_yoy_pct: number | null
+  }
+  real_customers: {
+    sample_days: number
+    total_groups: number
+    total_guests: number
+    avg_groups_per_day: number
+    avg_guests_per_day: number
+    avg_spend_per_group: number
+    avg_spend_per_guest: number
+  }
   courses: { casual: number; standard: number; premium: number }
   drink: { avg_ratio: number }
-  weekday_pattern: { dow: string; avg_sales: number }[]
+  trend_line: { label: string; avg_sales: number; count: number }[]
   anomalies: { date: string; direction: string; actual: number; expected: number; sigmas: number }[]
+  data_quality: {
+    has_prev: boolean
+    has_yoy: boolean
+    prev_days: number
+    yoy_days: number
+  }
 }
 
 /**
  * 全集計結果を構造化 JSON に変換する。
  * Claude API に渡して「今週の傾向を要約して」「来週の発注アドバイス」などに使用できる。
- * （現時点では AI 呼び出しは実装しない — データ整形のみ）
  */
 export function getAnalyticsSummary(
   logs: DailyLog[],
   prevLogs: DailyLog[],
+  scope: Scope = 'week',
+  yoyLogs: DailyLog[] = [],
+  periodLabel = '',
 ): AnalyticsSummaryJson {
   const sum = summarize(logs)
-  const cm = calcCustomerMetrics(logs)
-  const comp = prevLogs.length > 0 ? calcPeriodComparison(logs, prevLogs) : null
-  const wp = weekdayAvgSales(logs)
+  const rcm = calcRealCustomerMetrics(logs)
+  const compPrev = prevLogs.length >= 2 ? calcPeriodComparison(logs, prevLogs) : null
+  const compYoy = yoyLogs.length >= 2 ? calcPeriodComparison(logs, yoyLogs) : null
+  const trendLine = calcSalesTrendLine(logs, scope)
   const anom = detectAnomalies(logs)
+  const suf = calcSufficiency(logs, prevLogs, yoyLogs)
 
   const dates = [...logs.map((l) => l.log_date)].sort()
 
   return {
     generated_at: new Date().toISOString(),
+    scope,
     period: {
-      days: logs.length,
       from: dates[0] ?? '',
       to: dates[dates.length - 1] ?? '',
+      label: periodLabel,
+      operating_days: logs.length,
     },
     sales: {
       total: sum.totalSales,
       daily_avg: sum.avgSales,
-      vs_prev_period_pct: comp?.sales.pct ?? null,
+      vs_prev_pct: compPrev?.sales.pct ?? null,
+      vs_yoy_pct: compYoy?.sales.pct ?? null,
     },
-    customers: {
-      total: cm.totalCustomers,
-      avg_per_day: cm.avgCustomersPerDay,
-      avg_unit_price: cm.avgUnitPrice,
+    real_customers: {
+      sample_days: rcm.sampleCount,
+      total_groups: rcm.totalGroups,
+      total_guests: rcm.totalGuests,
+      avg_groups_per_day: rcm.avgGroupsPerDay,
+      avg_guests_per_day: rcm.avgGuestsPerDay,
+      avg_spend_per_group: rcm.avgSpendPerGroup,
+      avg_spend_per_guest: rcm.avgSpendPerGuest,
     },
     courses: {
       casual: sum.courseCasual,
@@ -343,7 +527,7 @@ export function getAnalyticsSummary(
       premium: sum.coursePremium,
     },
     drink: { avg_ratio: sum.avgDrink },
-    weekday_pattern: wp.map((w) => ({ dow: w.dow, avg_sales: w.avg })),
+    trend_line: trendLine.map((p) => ({ label: p.label, avg_sales: p.avgSales, count: p.count })),
     anomalies: anom.map((a) => ({
       date: a.date,
       direction: a.direction,
@@ -351,5 +535,11 @@ export function getAnalyticsSummary(
       expected: a.expectedSales,
       sigmas: a.sigmas,
     })),
+    data_quality: {
+      has_prev: suf.hasSufficientPrev,
+      has_yoy: suf.hasSufficientYoy,
+      prev_days: prevLogs.length,
+      yoy_days: yoyLogs.length,
+    },
   }
 }

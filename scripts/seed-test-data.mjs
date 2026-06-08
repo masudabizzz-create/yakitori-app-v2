@@ -103,6 +103,17 @@ function randInt(min, max) {
   return Math.floor(randBetween(min, max + 1))
 }
 
+/** YYYY-MM-DD を Asia/Tokyo 基準で返す（toISOString は UTC なので使わない） */
+function toYmdJst(date) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tokyo' }).format(date)
+}
+/** JST 基準の曜日インデックス（0=日） */
+function getJstDow(date) {
+  const ymd = toYmdJst(date)
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d).getDay()
+}
+
 // ── 営業ログ生成 ─────────────────────────────────────────────────
 const STAFF_NAMES = ['山田', '佐藤', '田中', '鈴木', '高橋']
 const CASUAL_PRICE = 3500
@@ -117,7 +128,7 @@ function seasonFactor(date) {
 }
 
 function generateDailyLog(date, tenantId) {
-  const dow = date.getDay() // 0=日曜
+  const dow = getJstDow(date) // JST 基準の曜日
   if (dow === 0) return null // 日曜定休
 
   const dowFactor = DOW_FACTOR[dow]
@@ -148,7 +159,7 @@ function generateDailyLog(date, tenantId) {
   const staffName = STAFF_NAMES[dow % STAFF_NAMES.length]
 
   // 日付文字列
-  const logDate = date.toISOString().split('T')[0]
+  const logDate = toYmdJst(date)  // JST 基準の日付
   const dayOfWeek = DOW_JA[dow]
 
   return {

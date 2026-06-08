@@ -58,6 +58,17 @@ const router = createRouter({
       },
     },
     {
+      // 前期比較ページ（analytics と同ロール）
+      path: '/analytics/compare',
+      name: 'analytics-compare',
+      component: () => import('@/views/AnalyticsCompareView.vue'),
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin', 'manager', 'store_owner'],
+        title: '前期比較',
+      },
+    },
+    {
       // platform_admin / manager / store_owner のみ
       path: '/order',
       name: 'order',

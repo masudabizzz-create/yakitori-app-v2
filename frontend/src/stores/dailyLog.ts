@@ -67,11 +67,18 @@ export interface DailyLogPayload {
 export function buildSubmitPayload(form: DailyInputForm, ctx: SubmitContext): DailyLogPayload {
   const now = ctx.now ?? new Date()
 
-  // 営業日の基準 Date（曜日計算に使用）
-  // logDate 指定時はその日付をローカル正午で解釈（UTC midnight ズレ防止）
-  const businessDate: Date = ctx.logDate
-    ? new Date(ctx.logDate.replace(/-/g, '/') + ' 12:00:00')
-    : now
+  // 営業日の YYYY-MM-DD 文字列
+  const logDate = ctx.logDate ?? formatDateYmd(now)
+
+  // 曜日を Asia/Tokyo 基準で取得
+  const [y, m, d] = logDate.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  const dowStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short'
+  }).format(date)
+  const dowMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const dow = dowMap[dowStr] ?? 0
 
   const totalSkewers = calcTotalSkewers(
     {
@@ -86,8 +93,8 @@ export function buildSubmitPayload(form: DailyInputForm, ctx: SubmitContext): Da
 
   const logRow: DailyLogRow = {
     tenant_id: ctx.tenantId,
-    log_date: ctx.logDate ?? formatDateYmd(now),
-    day_of_week: DOW_NAMES[businessDate.getDay()],
+    log_date: logDate,
+    day_of_week: DOW_NAMES[dow],
     staff_name: form.staffName,
     recorded_at: now.toISOString(),
     course_casual: form.courseCasual,
@@ -236,6 +243,23 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
   }
 
   /**
+   * 指定テナントの指定期間のログを日付昇順で返す（ストア状態は変更しない）。
+   * 分析画面がスコープ別にデータを管理するための純粋フェッチ関数。
+   */
+  async function fetchByDateRange(tenantId: string, from: string, to: string): Promise<DailyLog[]> {
+    const { data, error } = await supabase
+      .from('daily_logs')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .gte('log_date', from)
+      .lte('log_date', to)
+      .order('log_date', { ascending: false })
+      .limit(2000)
+    if (error) throw new Error(error.message)
+    return (data ?? []) as DailyLog[]
+  }
+
+  /**
    * 指定した daily_log ID 群の在庫スナップショットを取得し、串ごとに集計する。
    * 分析画面の「串ランキング」で使用。副産物は除外する。
    */
@@ -325,6 +349,7 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
     submitDailyReport,
     fetchLatest,
     fetchRecentLogs,
+    fetchByDateRange,
     fetchSkewerStocks,
     saveDraft,
     loadDraft,
