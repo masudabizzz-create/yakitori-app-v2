@@ -428,7 +428,7 @@ export interface SufficiencyResult {
 
 /**
  * 前期・昨対のデータが比較表示に十分かを判定する。
- * - 前期: prev_days < 2 または min(current × 0.5, 3) 未満 → 不十分
+ * - 前期: min(current × 0.5, 3) 未満 → 不十分
  * - 昨対: yoyLogs が空 → 不十分
  */
 export function calcSufficiency(
@@ -438,7 +438,7 @@ export function calcSufficiency(
 ): SufficiencyResult {
   const threshold = Math.min(Math.ceil(currentLogs.length * 0.5), 3)
   return {
-    hasSufficientPrev: prevLogs.length >= threshold && prevLogs.length >= 2,
+    hasSufficientPrev: prevLogs.length >= threshold,
     hasSufficientYoy: yoyLogs.length >= 2,
   }
 }

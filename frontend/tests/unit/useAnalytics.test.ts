@@ -353,7 +353,7 @@ describe('calcSufficiency', () => {
     expect(s.hasSufficientPrev).toBe(true)
   })
 
-  it('前期 1件は false（prev_days < 2）', () => {
+  it('当期6件・前期1件: threshold=3 → false（1<3）', () => {
     const s = calcSufficiency(makeLogs(6), makeLogs(1))
     expect(s.hasSufficientPrev).toBe(false)
   })
@@ -371,6 +371,16 @@ describe('calcSufficiency', () => {
   it('当期4件・前期2件: threshold=min(2,3)=2 → true（2>=2）', () => {
     const s = calcSufficiency(makeLogs(4), makeLogs(2))
     expect(s.hasSufficientPrev).toBe(true)
+  })
+
+  it('単日（当期1件・前期1件）: threshold=1 → true（1>=1）', () => {
+    const s = calcSufficiency(makeLogs(1), makeLogs(1))
+    expect(s.hasSufficientPrev).toBe(true)
+  })
+
+  it('単日（当期1件・前期0件）: threshold=1 → false（0<1）', () => {
+    const s = calcSufficiency(makeLogs(1), [])
+    expect(s.hasSufficientPrev).toBe(false)
   })
 
   it('昨対 2件以上で true', () => {
