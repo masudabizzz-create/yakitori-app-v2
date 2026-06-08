@@ -255,6 +255,19 @@ function chartY(avgSales: number): number {
   return CHART_H - (avgSales / trendMax.value) * CHART_H
 }
 
+// Y軸グリッドライン生成（5本）
+const chartGridLines = computed(() => {
+  const max = trendMax.value
+  const lines: Array<{ y: number; value: number; label: string }> = []
+  for (let i = 0; i <= 4; i++) {
+    const value = (max / 4) * i
+    const y = CHART_H - (value / max) * CHART_H
+    const label = value >= 1000 ? `¥${Math.round(value / 1000)}k` : `¥${Math.round(value)}`
+    lines.push({ y, value, label })
+  }
+  return lines
+})
+
 const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
 </script>
 
@@ -513,41 +526,65 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
               </p>
             </div>
             <!-- SVG 折れ線 -->
-            <svg
-              :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
-              class="w-full overflow-visible"
-              preserveAspectRatio="none"
-            >
-              <defs>
-                <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="rgb(8,145,178)" stop-opacity="0.3" />
-                  <stop offset="100%" stop-color="rgb(8,145,178)" stop-opacity="0" />
-                </linearGradient>
-              </defs>
-              <!-- エリア塗り -->
-              <path :d="chartAreaPath()" fill="url(#chartGrad)" />
-              <!-- ライン -->
-              <polyline
-                :points="chartPoints()"
-                fill="none"
-                stroke="rgb(8,145,178)"
-                stroke-width="2"
-                stroke-linejoin="round"
-                stroke-linecap="round"
-              />
-              <!-- データポイント -->
-              <circle
-                v-for="(pt, i) in trendData"
-                :key="i"
-                :cx="chartX(i, trendData.length)"
-                :cy="chartY(pt.avgSales)"
-                r="3"
-                fill="rgb(8,145,178)"
-                :opacity="pt.count < 3 ? 0.4 : 1"
-              />
-            </svg>
+            <div class="relative">
+              <!-- Y軸ラベル（SVG外に配置） -->
+              <div class="absolute left-0 top-0 bottom-0 flex flex-col justify-between pr-1" style="width: 32px;">
+                <span
+                  v-for="line in chartGridLines.slice().reverse()"
+                  :key="line.value"
+                  class="text-[9px] text-neutral-400 dark:text-neutral-500 tabular-nums text-right"
+                >{{ line.label }}</span>
+              </div>
+              <svg
+                :viewBox="`0 0 ${CHART_W} ${CHART_H}`"
+                class="w-full overflow-visible"
+                preserveAspectRatio="none"
+                style="margin-left: 36px;"
+              >
+                <defs>
+                  <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="rgb(8,145,178)" stop-opacity="0.3" />
+                    <stop offset="100%" stop-color="rgb(8,145,178)" stop-opacity="0" />
+                  </linearGradient>
+                </defs>
+                <!-- 横グリッドライン -->
+                <line
+                  v-for="line in chartGridLines"
+                  :key="line.value"
+                  x1="0"
+                  :y1="line.y"
+                  :x2="CHART_W"
+                  :y2="line.y"
+                  stroke="currentColor"
+                  stroke-width="0.5"
+                  class="text-neutral-200 dark:text-neutral-700"
+                  stroke-dasharray="2,2"
+                />
+                <!-- エリア塗り -->
+                <path :d="chartAreaPath()" fill="url(#chartGrad)" />
+                <!-- ライン -->
+                <polyline
+                  :points="chartPoints()"
+                  fill="none"
+                  stroke="rgb(8,145,178)"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                  stroke-linecap="round"
+                />
+                <!-- データポイント -->
+                <circle
+                  v-for="(pt, i) in trendData"
+                  :key="i"
+                  :cx="chartX(i, trendData.length)"
+                  :cy="chartY(pt.avgSales)"
+                  r="3"
+                  fill="rgb(8,145,178)"
+                  :opacity="pt.count < 3 ? 0.4 : 1"
+                />
+              </svg>
+            </div>
             <!-- X軸ラベル（間引き表示） -->
-            <div class="flex justify-between mt-1 px-0.5">
+            <div class="flex justify-between mt-1 px-0.5" style="margin-left: 36px;">
               <template v-for="(pt, i) in trendData" :key="i">
                 <span
                   v-if="i === 0 || i === trendData.length - 1 || (trendData.length <= 8) || i % Math.ceil(trendData.length / 6) === 0"

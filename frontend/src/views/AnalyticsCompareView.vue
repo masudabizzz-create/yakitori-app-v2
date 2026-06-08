@@ -336,93 +336,83 @@ const mainRows = computed<CompareRow[]>(() => {
     </header>
 
     <main class="max-w-lg mx-auto px-4 py-4 space-y-4">
-      <!-- 期間ナビ -->
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="w-8 h-8 rounded-lg flex items-center justify-center text-neutral-500 dark:text-neutral-400
-                 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-          @click="offset++"
-        >
-          <ChevronLeft :size="16" />
-        </button>
-        <button
-          type="button"
-          class="flex-1 text-center text-sm font-semibold text-neutral-800 dark:text-neutral-100 truncate
-                 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-lg py-1.5 transition-colors"
-          @click="showPeriodPicker = true"
-        >
-          {{ currentPeriod.label }}
-        </button>
-        <button
-          type="button"
-          class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
-          :class="offset > 0
-            ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
-            : 'text-neutral-200 dark:text-neutral-700 cursor-not-allowed'"
-          :disabled="offset === 0"
-          @click="goCurrentForward"
-        >
-          <ChevronRight :size="16" />
-        </button>
-      </div>
-
-      <!-- 期間ピッカー -->
-      <PeriodPicker
-        :scope="scope"
-        v-model="offset"
-        :open="showPeriodPicker"
-        @cancel="showPeriodPicker = false"
-        @update:modelValue="showPeriodPicker = false"
-      />
-
-      <!-- 期間ヘッダー -->
+      <!-- 期間ヘッダー（今期・前期のナビ統合） -->
       <div class="bg-brand-500/10 dark:bg-brand-500/20 border border-brand-500/20 rounded-2xl px-4 py-3 space-y-3">
-        <!-- 今期（固定） -->
-        <div class="text-center">
-          <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-0.5">今期</p>
-          <p class="font-semibold text-brand-600 dark:text-brand-400 leading-tight">{{ currentPeriod.label }}</p>
-          <p v-if="isInProgress" class="text-[10px] text-brand-400 dark:text-brand-500 mt-0.5">進行中（{{ currentLogs.length }}日）</p>
-        </div>
-
-        <div class="border-t border-brand-500/20 pt-3 space-y-3">
-          <!-- 前期（選択可能） -->
+        <!-- 今期（選択可能） -->
+        <div>
+          <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">今期</p>
           <div class="flex items-center gap-2">
-            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 w-10 shrink-0">前期</p>
             <button
               type="button"
               class="w-6 h-6 rounded flex items-center justify-center text-neutral-500 dark:text-neutral-400
                      hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-              @click="goPrevBack"
+              @click="offset++"
             >
               <ChevronLeft :size="14" />
             </button>
             <button
               type="button"
-              class="flex-1 text-center text-xs font-medium text-neutral-600 dark:text-neutral-300 leading-tight
+              class="flex-1 text-center text-sm font-semibold text-brand-600 dark:text-brand-400 leading-tight
                      hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded py-1 transition-colors"
-              @click="showPrevPicker = true"
+              @click="showPeriodPicker = true"
             >
-              {{ prevPeriod.label }}
+              {{ currentPeriod.label }}
             </button>
             <button
               type="button"
               class="w-6 h-6 rounded flex items-center justify-center transition-colors"
-              :class="(prevOffset ?? defaultPrevOffset) > 0
+              :class="offset > 0
                 ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
                 : 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'"
-              :disabled="(prevOffset ?? defaultPrevOffset) === 0"
-              @click="goPrevForward"
+              :disabled="offset === 0"
+              @click="goCurrentForward"
             >
               <ChevronRight :size="14" />
             </button>
           </div>
-          <p v-if="isInProgress && sufficiency.hasSufficientPrev" class="text-[10px] text-center text-neutral-400">{{ alignedPrevLogs.length }}日分で比較</p>
+          <p v-if="isInProgress" class="text-[10px] text-center text-brand-400 dark:text-brand-500 mt-1">進行中（{{ currentLogs.length }}日）</p>
+        </div>
+
+        <div class="border-t border-brand-500/20 pt-3 space-y-3">
+          <!-- 前期（選択可能） -->
+          <div>
+            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">前期</p>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="w-6 h-6 rounded flex items-center justify-center text-neutral-500 dark:text-neutral-400
+                       hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                @click="goPrevBack"
+              >
+                <ChevronLeft :size="14" />
+              </button>
+              <button
+                type="button"
+                class="flex-1 text-center text-xs font-medium text-neutral-600 dark:text-neutral-300 leading-tight
+                       hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded py-1 transition-colors"
+                @click="showPrevPicker = true"
+              >
+                {{ prevPeriod.label }}
+              </button>
+              <button
+                type="button"
+                class="w-6 h-6 rounded flex items-center justify-center transition-colors"
+                :class="(prevOffset ?? defaultPrevOffset) > 0
+                  ? 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800'
+                  : 'text-neutral-300 dark:text-neutral-600 cursor-not-allowed'"
+                :disabled="(prevOffset ?? defaultPrevOffset) === 0"
+                @click="goPrevForward"
+              >
+                <ChevronRight :size="14" />
+              </button>
+            </div>
+            <p v-if="isInProgress && sufficiency.hasSufficientPrev" class="text-[10px] text-center text-neutral-400 mt-1">{{ alignedPrevLogs.length }}日分で比較</p>
+          </div>
 
           <!-- 昨対（選択可能、月・四半期のみ） -->
-          <template v-if="scope === 'month' || scope === 'quarter'">
+          <div v-if="scope === 'month' || scope === 'quarter'">
+            <p class="text-[10px] text-neutral-400 dark:text-neutral-500 mb-1">昨対</p>
             <div class="flex items-center gap-2">
-              <p class="text-[10px] text-neutral-400 dark:text-neutral-500 w-10 shrink-0">昨対</p>
               <button
                 type="button"
                 class="w-6 h-6 rounded flex items-center justify-center text-neutral-500 dark:text-neutral-400
@@ -451,14 +441,23 @@ const mainRows = computed<CompareRow[]>(() => {
                 <ChevronRight :size="14" />
               </button>
             </div>
-            <p v-if="isInProgress && yoyPeriod && sufficiency.hasSufficientYoy" class="text-[10px] text-center text-neutral-400">{{ alignedYoyLogs.length }}日分で比較</p>
-          </template>
+            <p v-if="isInProgress && yoyPeriod && sufficiency.hasSufficientYoy" class="text-[10px] text-center text-neutral-400 mt-1">{{ alignedYoyLogs.length }}日分で比較</p>
+          </div>
         </div>
 
         <p v-if="isInProgress" class="text-[10px] text-center text-brand-500 dark:text-brand-400 border-t border-brand-500/20 pt-2">
           ※ 進行中のため比較対象も同経過日数で算出
         </p>
       </div>
+
+      <!-- 今期ピッカー -->
+      <PeriodPicker
+        :scope="scope"
+        v-model="offset"
+        :open="showPeriodPicker"
+        @cancel="showPeriodPicker = false"
+        @update:modelValue="showPeriodPicker = false"
+      />
 
       <!-- 前期ピッカー -->
       <PeriodPicker
