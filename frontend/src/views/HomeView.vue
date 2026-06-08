@@ -7,7 +7,10 @@ import { useDailyLogStore } from '@/stores/dailyLog'
 import { supabase } from '@/lib/supabase'
 import { ROLE_RANK } from '@/lib/roleRank'
 import { useThemeStore } from '@/stores/theme'
+import { useUpdateNotice } from '@/composables/useUpdateNotice'
 import VisitingBanner from '@/components/VisitingBanner.vue'
+import UpdateNoticeModal from '@/components/UpdateNoticeModal.vue'
+import UpdateListModal from '@/components/UpdateListModal.vue'
 import type { UserRole } from '@/types'
 import {
   PenLine,
@@ -27,6 +30,7 @@ import {
   CloudLightning,
   LogOut,
   Store,
+  Bell,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -82,6 +86,37 @@ function handleDocumentClick(e: MouseEvent) {
 onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick)
 })
+
+// ─── アップデート通知 ──────────────────────────────────────────────
+const { latestEntry, hasUnreadUpdate, changelog, markAsRead } = useUpdateNotice()
+
+/**
+ * 初回ポップアップ表示状態
+ * - HomeView マウント時に未読があれば1回だけ表示
+ * - 作業画面の最中には出さない（深夜の営業後入力中に突然出ないように）
+ */
+const showInitialNotice = ref(false)
+
+/** 一覧モーダル表示状態 */
+const showUpdateList = ref(false)
+
+/**
+ * 一覧を開いたときの処理
+ * - 自動で既読にする
+ */
+function openUpdateList() {
+  showUpdateList.value = true
+  markAsRead() // 一覧を見たら既読
+}
+
+/**
+ * 初回ポップアップを閉じたときの処理
+ * - 既読にしてポップアップを閉じる
+ */
+function closeInitialNotice() {
+  markAsRead()
+  showInitialNotice.value = false
+}
 
 // ─── テナント名 ───────────────────────────────────────────────────
 const currentTenantName = computed(() =>
@@ -232,6 +267,16 @@ onMounted(() => {
       // 天気取得失敗は無視
     }
   })()
+
+  /**
+   * 初回ポップアップ表示
+   * - HomeView マウント時のみ（作業画面の最中には出さない）
+   * - 未読アップデートがある場合に1回だけ表示
+   * - ログインのたび・画面遷移のたびに繰り返し出ない
+   */
+  if (hasUnreadUpdate.value) {
+    showInitialNotice.value = true
+  }
 })
 
 async function handleLogout() {
@@ -466,8 +511,62 @@ async function handleLogout() {
             </p>
           </div>
         </router-link>
+
+        <!-- お知らせカード -->
+        <button
+          class="
+            relative flex flex-col items-center gap-2.5
+            bg-card dark:bg-card-dark
+            border border-edge dark:border-edge-dark
+            rounded-2xl px-3 py-5
+            active:scale-[0.97] transition-transform
+          "
+          @click="openUpdateList"
+        >
+          <!-- アイコン円 + 未読バッジ -->
+          <div class="relative">
+            <div
+              class="
+                w-12 h-12 rounded-full flex items-center justify-center
+                bg-brand-50    dark:bg-brand-500/20
+              "
+            >
+              <Bell :size="22" class="text-brand-600 dark:text-brand-400" />
+            </div>
+            <!-- 未読バッジ（赤ドット） -->
+            <span
+              v-if="hasUnreadUpdate"
+              class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-card dark:border-card-dark"
+            />
+          </div>
+          <!-- テキスト -->
+          <div class="text-center min-w-0 w-full">
+            <p class="text-sm font-semibold text-neutral-900 dark:text-neutral-50 leading-tight">
+              お知らせ
+            </p>
+            <p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-tight">
+              アップデート情報
+            </p>
+          </div>
+        </button>
       </div>
     </main>
+
+    <!-- ══ モーダル ════════════════════════════════════════════════════ -->
+
+    <!-- 初回ポップアップ（HomeView マウント時のみ） -->
+    <UpdateNoticeModal
+      :open="showInitialNotice"
+      :entry="latestEntry"
+      @close="closeInitialNotice"
+    />
+
+    <!-- 一覧モーダル（お知らせカードクリック時） -->
+    <UpdateListModal
+      :open="showUpdateList"
+      :changelog="changelog"
+      @close="showUpdateList = false"
+    />
 
   </div>
 </template>
