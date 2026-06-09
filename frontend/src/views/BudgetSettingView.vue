@@ -27,6 +27,9 @@ const successMsg = ref('')
 const presets = ref<BudgetPreset[]>([])
 const activePresetAmount = ref(80000)
 
+// 手入力金額
+const customAmount = ref('')
+
 // 定休日
 const regularHolidays = computed(() => settingsStore.settings?.regular_holidays ?? [])
 
@@ -147,6 +150,18 @@ function applyAmount(amount: number, isClosed = false) {
   clearSelection()
 }
 
+// 手入力金額を適用
+function applyCustomAmount() {
+  const amount = parseInt(customAmount.value, 10)
+  if (isNaN(amount) || amount < 0) {
+    errorMsg.value = '金額を正しく入力してください（0以上の整数）'
+    return
+  }
+  errorMsg.value = ''
+  applyAmount(amount)
+  customAmount.value = ''
+}
+
 // 保存
 async function saveBudgets() {
   saving.value = true
@@ -248,6 +263,8 @@ async function saveBudgets() {
       <!-- 金額・休業カード -->
       <div class="space-y-2">
         <p class="text-sm font-semibold">選択日に適用（{{ selectedDates.size }}日選択中）</p>
+
+        <!-- プリセット -->
         <div class="grid grid-cols-2 gap-2">
           <button
             v-for="preset in presets"
@@ -269,6 +286,26 @@ async function saveBudgets() {
             <div class="text-base font-semibold">休業</div>
           </button>
         </div>
+
+        <!-- 手入力 -->
+        <div class="flex gap-2">
+          <input
+            v-model="customAmount"
+            type="number"
+            min="0"
+            step="1000"
+            placeholder="金額を入力（円）"
+            class="flex-1 px-3 py-2 rounded-xl border border-edge dark:border-edge-dark bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white focus:border-brand-500 focus:ring-brand-500"
+          />
+          <button
+            :disabled="selectedDates.size === 0 || !customAmount"
+            class="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white font-semibold transition-colors disabled:opacity-50"
+            @click="applyCustomAmount"
+          >
+            適用
+          </button>
+        </div>
+
         <button
           :disabled="selectedDates.size === 0"
           class="w-full py-2 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 disabled:opacity-50"
