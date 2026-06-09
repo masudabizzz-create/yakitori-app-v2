@@ -102,6 +102,28 @@ const router = createRouter({
       },
     },
     {
+      // 月次処理（store_owner 以上）
+      path: '/monthly-tasks',
+      name: 'monthly-tasks',
+      component: () => import('@/views/MonthlyTasksView.vue'),
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin', 'manager', 'store_owner'],
+        title: '月次処理',
+      },
+    },
+    {
+      // 予算設定（store_owner 以上）
+      path: '/monthly-tasks/budget',
+      name: 'budget-setting',
+      component: () => import('@/views/BudgetSettingView.vue'),
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin', 'manager', 'store_owner'],
+        title: '予算設定',
+      },
+    },
+    {
       // platform_admin / manager が複数店舗にアクセス可能な場合にログイン後表示される
       path: '/select-tenant',
       name: 'select-tenant',
