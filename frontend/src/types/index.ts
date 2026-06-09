@@ -265,3 +265,13 @@ export interface DailyBudget {
   created_at: string
   updated_at: string
 }
+
+export interface DailyLogEdit {
+  id: string
+  tenant_id: string
+  daily_log_id: string
+  edited_by: string
+  old_values: Record<string, unknown>
+  new_values: Record<string, unknown>
+  created_at: string
+}

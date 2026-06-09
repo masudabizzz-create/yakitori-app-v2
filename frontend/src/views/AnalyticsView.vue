@@ -26,6 +26,7 @@ import {
 } from '@/composables/usePeriodRange'
 import { calcBudgetComparison } from '@/composables/useBudgetComparison'
 import { supabase } from '@/lib/supabase'
+import { ROLE_RANK } from '@/composables/useRoleRank'
 import type { DailyLog, DailyBudget } from '@/types'
 import {
   ChevronLeft,
@@ -34,8 +35,10 @@ import {
   ClipboardList,
   TrendingUp,
   Target,
+  Pencil,
 } from 'lucide-vue-next'
 import PeriodPicker from '@/components/PeriodPicker.vue'
+import DailyLogEditModal from '@/components/analytics/DailyLogEditModal.vue'
 
 const router = useRouter()
 const dailyLogStore = useDailyLogStore()
@@ -65,6 +68,10 @@ function toggleRow(id: string) {
 
 /** 期間ピッカー表示状態 */
 const showPeriodPicker = ref(false)
+
+/** 編集モーダル */
+const editingLog = ref<DailyLog | null>(null)
+const showEditModal = ref(false)
 
 // ─── 期間計算 ─────────────────────────────────────────────────────
 const currentPeriod = computed(() => getPeriodRange(scope.value, offset.value))
@@ -180,6 +187,27 @@ function goCompare(anchor = '') {
       ...(anchor ? { anchor } : {}),
     },
   })
+}
+
+// ─── データ修正 ────────────────────────────────────────────────────
+const isStoreOwnerOrAbove = computed(() => {
+  if (!auth.role) return false
+  return ROLE_RANK[auth.role] >= ROLE_RANK.store_owner
+})
+
+function openEditModal(log: DailyLog) {
+  editingLog.value = log
+  showEditModal.value = true
+}
+
+function closeEditModal() {
+  showEditModal.value = false
+  editingLog.value = null
+}
+
+async function onLogSaved() {
+  // データ再読み込み
+  await loadData()
 }
 
 // ─── ユーティリティ ────────────────────────────────────────────────
@@ -718,27 +746,38 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
                       class="border-t border-edge dark:border-edge-dark bg-neutral-50/50 dark:bg-neutral-900/20"
                     >
                       <td colspan="7" class="px-4 py-2.5">
-                        <div class="grid grid-cols-2 gap-x-6 gap-y-1 text-[10px] text-neutral-500 dark:text-neutral-400">
-                          <!-- 外的要因 -->
-                          <div v-if="r.weather_code != null" class="col-span-2 flex flex-wrap gap-x-3 gap-y-0.5">
-                            <span v-if="weatherLabel(r.weather_code)">天気: {{ weatherLabel(r.weather_code) }}</span>
-                            <span v-if="r.temp_avg != null">気温: {{ r.temp_avg }}°C</span>
-                            <span v-if="r.precip_mm != null">降水: {{ r.precip_mm }}mm</span>
-                            <span v-if="r.humidity_avg != null">湿度: {{ r.humidity_avg }}%</span>
-                            <span v-if="r.is_holiday" class="text-red-500">祝日</span>
-                            <span v-if="r.is_pre_holiday" class="text-amber-500">祝前日</span>
+                        <div class="flex items-start gap-3">
+                          <div class="flex-1 grid grid-cols-2 gap-x-6 gap-y-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                            <!-- 外的要因 -->
+                            <div v-if="r.weather_code != null" class="col-span-2 flex flex-wrap gap-x-3 gap-y-0.5">
+                              <span v-if="weatherLabel(r.weather_code)">天気: {{ weatherLabel(r.weather_code) }}</span>
+                              <span v-if="r.temp_avg != null">気温: {{ r.temp_avg }}°C</span>
+                              <span v-if="r.precip_mm != null">降水: {{ r.precip_mm }}mm</span>
+                              <span v-if="r.humidity_avg != null">湿度: {{ r.humidity_avg }}%</span>
+                              <span v-if="r.is_holiday" class="text-red-500">祝日</span>
+                              <span v-if="r.is_pre_holiday" class="text-amber-500">祝前日</span>
+                            </div>
+                            <!-- 串・ドリンク・コース内訳 -->
+                            <span>串本数: {{ r.total_skewers }}本</span>
+                            <span>ドリンク: {{ r.drink_ratio }}%</span>
+                            <span class="col-span-2">
+                              C{{ r.course_casual }} / S{{ r.course_standard }} / P{{ r.course_premium }}
+                              <template v-if="r.groups_count != null"> · {{ r.groups_count }}組</template>
+                              <template v-if="r.guests_count != null"> {{ r.guests_count }}名</template>
+                            </span>
+                            <span v-if="r.memo" class="col-span-2 text-neutral-600 dark:text-neutral-300 italic">
+                              「{{ r.memo }}」
+                            </span>
                           </div>
-                          <!-- 串・ドリンク・コース内訳 -->
-                          <span>串本数: {{ r.total_skewers }}本</span>
-                          <span>ドリンク: {{ r.drink_ratio }}%</span>
-                          <span class="col-span-2">
-                            C{{ r.course_casual }} / S{{ r.course_standard }} / P{{ r.course_premium }}
-                            <template v-if="r.groups_count != null"> · {{ r.groups_count }}組</template>
-                            <template v-if="r.guests_count != null"> {{ r.guests_count }}名</template>
-                          </span>
-                          <span v-if="r.memo" class="col-span-2 text-neutral-600 dark:text-neutral-300 italic">
-                            「{{ r.memo }}」
-                          </span>
+                          <!-- 編集ボタン -->
+                          <button
+                            v-if="isStoreOwnerOrAbove"
+                            @click="openEditModal(r)"
+                            class="shrink-0 px-2 py-1 rounded-lg border border-edge dark:border-edge-dark hover:bg-neutral-100 dark:hover:bg-neutral-800 text-xs text-neutral-600 dark:text-neutral-400 flex items-center gap-1"
+                          >
+                            <Pencil :size="12" />
+                            編集
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -784,5 +823,13 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
         </div>
       </template>
     </main>
+
+    <!-- データ修正モーダル -->
+    <DailyLogEditModal
+      :log="editingLog"
+      :show="showEditModal"
+      @close="closeEditModal"
+      @saved="onLogSaved"
+    />
   </div>
 </template>
