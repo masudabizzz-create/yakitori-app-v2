@@ -24,13 +24,16 @@ import {
   SCOPE_LABELS,
   type Scope,
 } from '@/composables/usePeriodRange'
-import type { DailyLog } from '@/types'
+import { calcBudgetComparison } from '@/composables/useBudgetComparison'
+import { supabase } from '@/lib/supabase'
+import type { DailyLog, DailyBudget } from '@/types'
 import {
   ChevronLeft,
   ChevronRight,
   BarChart2,
   ClipboardList,
   TrendingUp,
+  Target,
 } from 'lucide-vue-next'
 import PeriodPicker from '@/components/PeriodPicker.vue'
 
@@ -50,6 +53,7 @@ const currentLogs = ref<DailyLog[]>([])
 const prevLogs = ref<DailyLog[]>([])
 const yoyLogs = ref<DailyLog[]>([])
 const trendLogs = ref<DailyLog[]>([])
+const budgets = ref<DailyBudget[]>([])
 
 /** 日次ログ行の展開状態 */
 const expandedRows = ref<Set<string>>(new Set())
@@ -102,18 +106,9 @@ const analyticsSummaryJson = computed(() =>
 )
 defineExpose({ analyticsSummaryJson })
 
-// 月次目標
-const monthlyTarget = computed(() => settingsStore.settings?.monthly_sales_target ?? 0)
-const currentMonthSales = computed(() => {
-  const ym = new Date().toISOString().slice(0, 7)
-  return currentLogs.value
-    .filter((r) => r.log_date.startsWith(ym))
-    .reduce((a, r) => a + r.total_sales, 0)
-})
-const monthlyProgress = computed(() =>
-  monthlyTarget.value > 0
-    ? Math.min(Math.round((currentMonthSales.value / monthlyTarget.value) * 100), 100)
-    : 0,
+// 予算比
+const budgetComparison = computed(() =>
+  calcBudgetComparison(currentLogs.value, budgets.value, currentPeriod.value, isInProgress.value)
 )
 
 // ─── データ読み込み ────────────────────────────────────────────────
@@ -130,12 +125,20 @@ async function loadData() {
     const yp = getYoyPeriod(scope.value, offset.value)
     const tr = getTrendFetchRange(scope.value, offset.value)
 
-    const [trendData, prevData, yoyData] = await Promise.all([
+    const [trendData, prevData, yoyData, budgetData] = await Promise.all([
       dailyLogStore.fetchByDateRange(tenantId, tr.from, tr.to),
       dailyLogStore.fetchByDateRange(tenantId, pp.from, pp.to),
       yp
         ? dailyLogStore.fetchByDateRange(tenantId, yp.from, yp.to)
         : Promise.resolve([] as DailyLog[]),
+      supabase
+        .from('daily_budgets')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('log_date', cp.from)
+        .lte('log_date', cp.to)
+        .order('log_date')
+        .then(({ data }) => data ?? []),
     ])
 
     trendLogs.value = trendData
@@ -144,6 +147,7 @@ async function loadData() {
     )
     prevLogs.value = prevData
     yoyLogs.value = yoyData
+    budgets.value = budgetData
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : '読み込みに失敗しました'
   } finally {
@@ -392,28 +396,37 @@ const SCOPES: Scope[] = ['day', 'week', 'month', 'quarter', 'year']
         <!-- ===== 分析タブ ===== -->
         <div v-show="activeTab === 'analysis'" class="space-y-3">
 
-          <!-- 月次目標 -->
+          <!-- 予算比 -->
           <section
-            v-if="monthlyTarget > 0 && (scope === 'month' || scope === 'day' || scope === 'week')"
+            v-if="budgetComparison"
             class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl px-4 py-3"
           >
-            <div class="flex items-center justify-between mb-2">
-              <p class="text-xs text-neutral-500 dark:text-neutral-400">今月の達成率</p>
-              <p class="text-sm font-bold tabular-nums"
-                :class="monthlyProgress >= 100 ? 'text-green-600 dark:text-green-400' : 'text-brand-500'">
-                {{ monthlyProgress }}%
+            <div class="flex items-center gap-2 mb-2">
+              <Target :size="16" class="text-brand-500" />
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">予算比</p>
+              <p class="ml-auto text-sm font-bold tabular-nums"
+                :class="budgetComparison.diffPct >= 100 ? 'text-green-600 dark:text-green-400' : budgetComparison.diffPct >= 90 ? 'text-brand-500' : 'text-red-500 dark:text-red-400'">
+                {{ budgetComparison.diffPct }}%
               </p>
             </div>
             <div class="h-2 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
               <div
                 class="h-full rounded-full transition-all duration-500"
-                :class="monthlyProgress >= 100 ? 'bg-green-500' : 'bg-brand-500'"
-                :style="{ width: `${monthlyProgress}%` }"
+                :class="budgetComparison.diffPct >= 100 ? 'bg-green-500' : budgetComparison.diffPct >= 90 ? 'bg-brand-500' : 'bg-red-500'"
+                :style="{ width: `${Math.min(budgetComparison.diffPct, 100)}%` }"
               />
             </div>
             <div class="flex justify-between mt-1 text-xs text-neutral-400 dark:text-neutral-500 tabular-nums">
-              <span>¥{{ currentMonthSales.toLocaleString() }}</span>
-              <span>目標 ¥{{ monthlyTarget.toLocaleString() }}</span>
+              <span>実績 ¥{{ budgetComparison.actual.toLocaleString() }}</span>
+              <span>予算 ¥{{ budgetComparison.budget.toLocaleString() }}</span>
+            </div>
+            <div class="flex justify-between mt-1 text-xs">
+              <span :class="budgetComparison.diffAmount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'">
+                {{ budgetComparison.diffAmount >= 0 ? '+' : '' }}¥{{ budgetComparison.diffAmount.toLocaleString() }}
+              </span>
+              <span class="text-neutral-400 dark:text-neutral-500">
+                残り ¥{{ budgetComparison.remaining.toLocaleString() }}
+              </span>
             </div>
           </section>
 
