@@ -195,11 +195,21 @@ onMounted(async () => {
       form.totalSales = draft.totalSales
       form.drinkRatio = draft.drinkRatio
       form.memo = draft.memo
+      form.groupsCount = draft.groupsCount ?? null
+      form.guestsCount = draft.guestsCount ?? null
       draftRestored.value = true
     }
 
     // ドリンク比率の文字列バッファを初期化（下書き復元後）
     drinkRatioStr.value = form.drinkRatio > 0 ? String(form.drinkRatio) : ''
+
+    // 組数・客数の文字列バッファを初期化（下書き復元後）
+    if (draft?.groupsCount != null) {
+      groupsCountStr.value = String(draft.groupsCount)
+    }
+    if (draft?.guestsCount != null) {
+      guestsCountStr.value = String(draft.guestsCount)
+    }
 
     // 串入力の初期化（下書きがあれば引き継ぐ）
     for (const s of inputSkewers.value) {
