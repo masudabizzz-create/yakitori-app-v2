@@ -62,8 +62,8 @@ watch(drinkRatioStr, (v) => {
  * 組数・客数の文字列バッファ。
  * 空文字 = 未入力（null）と 0 入力を区別するために文字列で管理する。
  */
-const groupsCountStr = ref<string>('0')
-const guestsCountStr = ref<string>('0')
+const groupsCountStr = ref<string>('')
+const guestsCountStr = ref<string>('')
 const groupsGuestsErr = ref<string>('')
 
 // 入力フォーム
