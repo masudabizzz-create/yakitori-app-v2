@@ -31,6 +31,7 @@ import {
   LogOut,
   Store,
   Bell,
+  CalendarCog,
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -65,6 +66,11 @@ const roleLabel = computed(() =>
 /** manager 以上（rank >= 4）かつ複数テナントにアクセスできる場合のみ店舗移動ボタンを表示 */
 const showTenantSwitcher = computed(() =>
   ROLE_RANK[auth.role ?? 'staff_both'] >= 4 && auth.accessibleTenants.length > 1,
+)
+
+/** store_owner 以上か（月次処理表示権限） */
+const isStoreOwnerOrAbove = computed(() =>
+  auth.role ? ROLE_RANK[auth.role] >= ROLE_RANK.store_owner : false,
 )
 
 // ─── インライン店舗切替メニュー ────────────────────────────────────
@@ -511,6 +517,38 @@ async function handleLogout() {
             </p>
           </div>
         </router-link>
+
+        <!-- 月次処理カード（store_owner 以上） -->
+        <button
+          v-if="isStoreOwnerOrAbove"
+          class="
+            relative flex flex-col items-center gap-2.5
+            bg-card dark:bg-card-dark
+            border border-edge dark:border-edge-dark
+            rounded-2xl px-3 py-5
+            active:scale-[0.97] transition-transform
+          "
+          @click="router.push('/monthly-tasks')"
+        >
+          <div class="relative">
+            <div
+              class="
+                w-12 h-12 rounded-full flex items-center justify-center
+                bg-brand-50    dark:bg-brand-500/20
+              "
+            >
+              <CalendarCog :size="22" class="text-brand-600 dark:text-brand-400" />
+            </div>
+          </div>
+          <div class="text-center min-w-0 w-full">
+            <p class="text-sm font-semibold text-neutral-900 dark:text-neutral-50 leading-tight">
+              月次処理
+            </p>
+            <p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5 leading-tight">
+              予算・データ修正
+            </p>
+          </div>
+        </button>
 
         <!-- お知らせカード -->
         <button

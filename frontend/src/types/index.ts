@@ -147,8 +147,12 @@ export interface Settings {
   course_standard_skewers: number
   course_premium_skewers: number
   line_token: string
-  /** 月次売上目標（円）。0 = 未設定 */
+  /** 月次売上目標（円）。0 = 未設定。※ 非推奨: 日別予算に移行してください */
   monthly_sales_target: number
+  /** 定休日（曜日コード配列: 0=日, 1=月, ..., 6=土）。空配列 = 定休日なし */
+  regular_holidays: number[]
+  /** 予算金額プリセット（店舗ごとに編集可能） */
+  budget_presets: BudgetPreset[]
   updated_at: string
 }
 
@@ -241,4 +245,33 @@ export interface DailyInputForm {
   groupsCount?: number | null
   /** 実際の総客数（null = 未入力・未対応フォーム） */
   guestsCount?: number | null
+}
+
+// ---------------- 予算関連 ----------------
+
+/** 予算金額プリセット */
+export interface BudgetPreset {
+  label: string   // "平日", "金土", "日" etc
+  amount: number
+}
+
+/** 日別予算 */
+export interface DailyBudget {
+  id: string
+  tenant_id: string
+  log_date: string  // YYYY-MM-DD
+  amount: number
+  is_closed: boolean  // 臨時休業フラグ
+  created_at: string
+  updated_at: string
+}
+
+export interface DailyLogEdit {
+  id: string
+  tenant_id: string
+  daily_log_id: string
+  edited_by: string
+  old_values: Record<string, unknown>
+  new_values: Record<string, unknown>
+  created_at: string
 }

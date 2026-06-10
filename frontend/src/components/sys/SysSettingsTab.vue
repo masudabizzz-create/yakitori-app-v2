@@ -2,9 +2,23 @@
 import { ref, computed, onMounted } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
+import { ROLE_RANK } from '@/lib/roleRank'
 
 const settingsStore = useSettingsStore()
 const auth = useAuthStore()
+
+// 定休日設定
+const regularHolidays = ref<number[]>([])
+const savingHolidays = ref(false)
+const holidaysMsg = ref('')
+const holidaysErr = ref('')
+
+const DOW_LABELS = ['日', '月', '火', '水', '木', '金', '土']
+
+/** store_owner 以上か（定休日変更権限） */
+const isStoreOwnerOrAbove = computed(() =>
+  auth.role ? ROLE_RANK[auth.role] >= ROLE_RANK.store_owner : false
+)
 
 // LINE トークン
 const lineToken = ref('')
@@ -34,6 +48,7 @@ const currentHomeTenantName = computed(() => {
 onMounted(() => {
   lineToken.value = settingsStore.settings?.line_token ?? ''
   selectedHomeTenantId.value = auth.appUser?.tenant_id ?? ''
+  regularHolidays.value = settingsStore.settings?.regular_holidays ?? []
 })
 
 async function saveLineToken() {
@@ -88,10 +103,89 @@ async function changePassword() {
     changingPw.value = false
   }
 }
+
+function toggleHoliday(dow: number) {
+  if (!isStoreOwnerOrAbove.value) return
+  const index = regularHolidays.value.indexOf(dow)
+  if (index >= 0) {
+    regularHolidays.value.splice(index, 1)
+  } else {
+    regularHolidays.value.push(dow)
+  }
+  regularHolidays.value.sort()  // ソートして曜日順に
+}
+
+async function saveRegularHolidays() {
+  savingHolidays.value = true
+  holidaysMsg.value = ''
+  holidaysErr.value = ''
+  try {
+    await settingsStore.saveSettings({ regular_holidays: regularHolidays.value })
+    holidaysMsg.value = '定休日を保存しました'
+  } catch (e) {
+    holidaysErr.value = e instanceof Error ? e.message : '保存に失敗しました'
+  } finally {
+    savingHolidays.value = false
+  }
+}
 </script>
 
 <template>
   <div class="space-y-4">
+    <!-- 定休日設定 -->
+    <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
+      <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">定休日設定</h2>
+      <div class="px-4 py-3 space-y-3">
+        <p class="text-xs text-neutral-500 dark:text-neutral-400">
+          店舗の定休日を設定します。全員閲覧可、変更は店舗責任者以上のみ可能です。
+        </p>
+
+        <div class="flex gap-2 flex-wrap">
+          <label
+            v-for="(label, dow) in DOW_LABELS"
+            :key="dow"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-colors"
+            :class="[
+              regularHolidays.includes(dow)
+                ? 'bg-brand-500/10 border-brand-500/30 text-brand-700 dark:text-brand-300'
+                : 'bg-neutral-50 dark:bg-neutral-900 border-edge dark:border-edge-dark text-neutral-700 dark:text-neutral-300',
+              isStoreOwnerOrAbove ? 'cursor-pointer hover:border-brand-500/50' : 'cursor-not-allowed opacity-60'
+            ]"
+          >
+            <input
+              type="checkbox"
+              :checked="regularHolidays.includes(dow)"
+              :disabled="!isStoreOwnerOrAbove"
+              class="rounded text-brand-500 focus:ring-brand-500"
+              @change="toggleHoliday(dow)"
+            />
+            <span class="text-sm font-medium">{{ label }}</span>
+          </label>
+        </div>
+
+        <p class="text-xs text-neutral-500 dark:text-neutral-400">
+          ※ 定休日なし（全日営業）の場合は、すべてのチェックを外してください。
+        </p>
+
+        <p v-if="holidaysErr" class="text-sm text-red-500 dark:text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+          {{ holidaysErr }}
+        </p>
+        <p v-if="holidaysMsg" class="text-sm text-green-600 dark:text-green-400 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
+          {{ holidaysMsg }}
+        </p>
+
+        <button
+          v-if="isStoreOwnerOrAbove"
+          type="button"
+          :disabled="savingHolidays"
+          class="w-full py-3.5 bg-brand-500 hover:bg-brand-600 disabled:bg-brand-400/60 text-white font-semibold rounded-2xl active:scale-95 transition-transform"
+          @click="saveRegularHolidays"
+        >
+          {{ savingHolidays ? '保存中...' : '定休日を保存' }}
+        </button>
+      </div>
+    </section>
+
     <!-- 拠点店舗変更（platform_admin のみ） -->
     <section
       v-if="auth.role === 'platform_admin'"

@@ -127,7 +127,13 @@ async function save() {
     <section class="bg-card dark:bg-card-dark border border-edge dark:border-edge-dark rounded-2xl overflow-hidden">
       <h2 class="px-4 py-2.5 bg-black/[0.03] dark:bg-white/[0.04] text-sm font-semibold text-neutral-700 dark:text-neutral-200">月次売上目標</h2>
       <div class="px-4 py-3 flex items-center justify-between gap-3">
-        <label class="text-sm text-neutral-700 dark:text-neutral-200">月次目標（円）<span class="text-xs text-neutral-400 ml-1">0=未設定</span></label>
+        <div class="flex flex-col gap-0.5">
+          <div class="flex items-center gap-2">
+            <label class="text-sm text-neutral-700 dark:text-neutral-200">月次目標（円）</label>
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border border-yellow-500/20">非推奨</span>
+          </div>
+          <p class="text-xs text-neutral-400">予算機能への移行を推奨（月次処理 → 予算設定）</p>
+        </div>
         <input
           v-model.number="monthlySalesTarget"
           type="number"
