@@ -251,3 +251,156 @@ describe('dailyLog ストア - 下書き', () => {
     expect(store.loadDraft()).toBeNull()
   })
 })
+
+// ============================================================
+// 異常系・境界値テスト（フェーズ0追加）
+// ============================================================
+
+describe('buildSubmitPayload - 異常系・境界値', () => {
+  const skewers: Skewer[] = [
+    makeSkewer('reg', 'レギュラー'),
+  ]
+
+  const ctx = {
+    tenantId: 't1',
+    skewers,
+    perCourse: { casual: 10, standard: 15, premium: 20 },
+    now: new Date(2026, 4, 22),
+  }
+
+  it('売上が0の場合でも正しく処理される', () => {
+    const form = { ...baseForm, totalSales: 0, drinkRatio: 0 }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.total_sales).toBe(0)
+    expect(logRow.drink_sales).toBe(0)
+  })
+
+  it('売上が負数の場合でも処理される（現状はバリデーション無し）', () => {
+    const form = { ...baseForm, totalSales: -10000 }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.total_sales).toBe(-10000) // 現状は通過（後で修正予定）
+  })
+
+  it('極端に大きい売上でも処理される', () => {
+    const form = { ...baseForm, totalSales: 999999999 }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.total_sales).toBe(999999999)
+  })
+
+  it('コース数が0でも処理される', () => {
+    const form = { ...baseForm, courseCasual: 0, courseStandard: 0, coursePremium: 0 }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.course_casual).toBe(0)
+    expect(logRow.total_skewers).toBe(5) // 追加串のみ
+  })
+
+  it('組数・客数がnullの場合、logRowに含まれない', () => {
+    const form = { ...baseForm, groupsCount: null, guestsCount: null }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.groups_count).toBeUndefined()
+    expect(logRow.guests_count).toBeUndefined()
+  })
+
+  it('組数・客数が0の場合、logRowに含まれる', () => {
+    const form = { ...baseForm, groupsCount: 0, guestsCount: 0 }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.groups_count).toBe(0)
+    expect(logRow.guests_count).toBe(0)
+  })
+
+  it('staffNameが空文字でも処理される', () => {
+    const form = { ...baseForm, staffName: '' }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.staff_name).toBe('')
+  })
+
+  it('memoが空文字でも処理される', () => {
+    const form = { ...baseForm, memo: '' }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.memo).toBe('')
+  })
+
+  it('drinkRatioが100を超えても処理される（現状はバリデーション無し）', () => {
+    const form = { ...baseForm, drinkRatio: 150 }
+    const { logRow } = buildSubmitPayload(form, ctx)
+    expect(logRow.drink_ratio).toBe(150) // 現状は通過
+  })
+})
+
+describe('下書き保存→復元の完全一致テスト', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+  })
+
+  it('全フィールドが復元される（groupsCount/guestsCount含む）', () => {
+    const store = useDailyLogStore()
+    const fullForm: DailyInputForm = {
+      ...baseForm,
+      groupsCount: 20,
+      guestsCount: 60,
+    }
+
+    store.saveDraft(fullForm)
+    const loaded = store.loadDraft()
+
+    expect(loaded).not.toBeNull()
+    expect(loaded!.staffName).toBe(fullForm.staffName)
+    expect(loaded!.courseCasual).toBe(fullForm.courseCasual)
+    expect(loaded!.courseStandard).toBe(fullForm.courseStandard)
+    expect(loaded!.coursePremium).toBe(fullForm.coursePremium)
+    expect(loaded!.extraSkewers).toBe(fullForm.extraSkewers)
+    expect(loaded!.totalSales).toBe(fullForm.totalSales)
+    expect(loaded!.drinkRatio).toBe(fullForm.drinkRatio)
+    expect(loaded!.memo).toBe(fullForm.memo)
+    expect(loaded!.groupsCount).toBe(20)
+    expect(loaded!.guestsCount).toBe(60)
+    expect(loaded!.skewerInputs).toEqual(fullForm.skewerInputs)
+  })
+
+  it('groupsCount/guestsCountがnullの場合も保存・復元される', () => {
+    const store = useDailyLogStore()
+    const formWithNull: DailyInputForm = {
+      ...baseForm,
+      groupsCount: null,
+      guestsCount: null,
+    }
+
+    store.saveDraft(formWithNull)
+    const loaded = store.loadDraft()
+
+    expect(loaded).not.toBeNull()
+    expect(loaded!.groupsCount).toBeNull()
+    expect(loaded!.guestsCount).toBeNull()
+  })
+
+  it('groupsCount/guestsCountが0の場合も保存・復元される', () => {
+    const store = useDailyLogStore()
+    const formWithZero: DailyInputForm = {
+      ...baseForm,
+      groupsCount: 0,
+      guestsCount: 0,
+    }
+
+    store.saveDraft(formWithZero)
+    const loaded = store.loadDraft()
+
+    expect(loaded).not.toBeNull()
+    expect(loaded!.groupsCount).toBe(0)
+    expect(loaded!.guestsCount).toBe(0)
+  })
+
+  it('skewerInputsが空オブジェクトの場合も復元される', () => {
+    const store = useDailyLogStore()
+    const formNoSkewers: DailyInputForm = {
+      ...baseForm,
+      skewerInputs: {},
+    }
+
+    store.saveDraft(formNoSkewers)
+    const loaded = store.loadDraft()
+
+    expect(loaded).not.toBeNull()
+    expect(loaded!.skewerInputs).toEqual({})
+  })
+})
