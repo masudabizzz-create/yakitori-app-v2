@@ -229,7 +229,7 @@ onMounted(async () => {
   }
 })
 
-/** ドリンク比率のバリデーション。0以上・小数点2桁まで。 */
+/** ドリンク比率のバリデーション。0以上100以下・小数点2桁まで。 */
 function validateDrinkRatio(): boolean {
   const raw = drinkRatioStr.value.trim()
   if (raw === '') {
@@ -238,8 +238,9 @@ function validateDrinkRatio(): boolean {
     return true
   }
   const parsed = parseFloat(raw)
-  if (isNaN(parsed) || parsed < 0 || !/^\d+(\.\d{1,2})?$/.test(raw)) {
-    drinkRatioErr.value = '0以上の数値を小数点2桁まで入力してください（例: 35.5）'
+  // フェーズ1: 100以下のチェック追加（DB CHECK制約と整合）
+  if (isNaN(parsed) || parsed < 0 || parsed > 100 || !/^\d+(\.\d{1,2})?$/.test(raw)) {
+    drinkRatioErr.value = '0〜100の数値を小数点2桁まで入力してください（例: 35.5）'
     return false
   }
   form.drinkRatio = parsed

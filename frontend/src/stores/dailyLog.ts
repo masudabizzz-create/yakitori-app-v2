@@ -175,7 +175,15 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
       const log = logData as DailyLog
 
       // 在庫スナップショットを洗い替え
-      await supabase.from('daily_log_stocks').delete().eq('daily_log_id', log.id)
+      // フェーズ1: delete/insert失敗時のエラーメッセージを明確化
+      const { error: deleteErr } = await supabase
+        .from('daily_log_stocks')
+        .delete()
+        .eq('daily_log_id', log.id)
+      if (deleteErr) {
+        throw new Error(`在庫削除エラー: ${deleteErr.message}（日報は保存済み・要再送信）`)
+      }
+
       if (stockRows.length > 0) {
         const rows = stockRows.map((r) => ({
           daily_log_id: log.id,
@@ -184,7 +192,11 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
           is_kombu: r.is_kombu,
         }))
         const { error: stockErr } = await supabase.from('daily_log_stocks').insert(rows)
-        if (stockErr) throw new Error(stockErr.message)
+        if (stockErr) {
+          // 在庫insert失敗時は明示的にエラーを投げる
+          // （日報は既に保存済み→部分成功状態をユーザーに通知）
+          throw new Error(`在庫保存エラー: ${stockErr.message}（日報は保存済み・在庫のみ再入力が必要）`)
+        }
       }
 
       return { log, stockRows }

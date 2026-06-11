@@ -275,10 +275,14 @@ describe('buildSubmitPayload - 異常系・境界値', () => {
     expect(logRow.drink_sales).toBe(0)
   })
 
-  it('売上が負数の場合でも処理される（現状はバリデーション無し）', () => {
+  // TODO: フェーズ1で範囲チェック実装後、このテストを修正
+  // 期待値: バリデーションエラーまたは0にクランプ
+  it.todo('売上が負数の場合は拒否されるべき（現状は通過）')
+
+  it('売上が負数の場合でも処理される（暫定: フェーズ1で修正予定）', () => {
     const form = { ...baseForm, totalSales: -10000 }
     const { logRow } = buildSubmitPayload(form, ctx)
-    expect(logRow.total_sales).toBe(-10000) // 現状は通過（後で修正予定）
+    expect(logRow.total_sales).toBe(-10000) // 暫定: 現状通過
   })
 
   it('極端に大きい売上でも処理される', () => {
@@ -320,10 +324,14 @@ describe('buildSubmitPayload - 異常系・境界値', () => {
     expect(logRow.memo).toBe('')
   })
 
-  it('drinkRatioが100を超えても処理される（現状はバリデーション無し）', () => {
+  // TODO: フェーズ1で範囲チェック実装後、このテストを修正
+  // 期待値: バリデーションエラーまたは100にクランプ
+  it.todo('drinkRatioが100を超える場合は拒否されるべき（現状は通過）')
+
+  it('drinkRatioが100を超えても処理される（暫定: フェーズ1で修正予定）', () => {
     const form = { ...baseForm, drinkRatio: 150 }
     const { logRow } = buildSubmitPayload(form, ctx)
-    expect(logRow.drink_ratio).toBe(150) // 現状は通過
+    expect(logRow.drink_ratio).toBe(150) // 暫定: 現状通過
   })
 })
 
