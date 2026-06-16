@@ -156,7 +156,8 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
 
   /**
    * 営業後入力を Supabase に保存する。
-   * daily_logs は (tenant_id, log_date) で upsert、daily_log_stocks は洗い替え。
+   * submit_daily_report RPC で daily_logs と daily_log_stocks を原子的に保存。
+   * 両方成功または両方ロールバックが保証される（フェーズ1.5: 1-4対策）。
    */
   async function submitDailyReport(
     form: DailyInputForm,
@@ -166,40 +167,44 @@ export const useDailyLogStore = defineStore('dailyLog', () => {
     try {
       const { logRow, stockRows } = buildSubmitPayload(form, ctx)
 
-      const { data: logData, error: logErr } = await supabase
+      // RPC が期待するキャメルケースに変換（is_kombu → isKombu）
+      const rpcStockRows = stockRows.map((r) => ({
+        skewerId: r.skewerId,
+        stock: r.stock,
+        isKombu: r.is_kombu,
+      }))
+
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('submit_daily_report', {
+        p_tenant_id: logRow.tenant_id,
+        p_log_date: logRow.log_date,
+        p_day_of_week: logRow.day_of_week,
+        p_staff_name: logRow.staff_name,
+        p_recorded_at: logRow.recorded_at,
+        p_course_casual: logRow.course_casual,
+        p_course_standard: logRow.course_standard,
+        p_course_premium: logRow.course_premium,
+        p_extra_skewers: logRow.extra_skewers,
+        p_total_skewers: logRow.total_skewers,
+        p_total_sales: logRow.total_sales,
+        p_drink_sales: logRow.drink_sales,
+        p_drink_ratio: logRow.drink_ratio,
+        p_memo: logRow.memo,
+        p_groups_count: logRow.groups_count ?? null,
+        p_guests_count: logRow.guests_count ?? null,
+        p_stock_rows: rpcStockRows,
+      })
+      if (rpcErr) throw new Error(rpcErr.message)
+
+      // 保存された日報を取得（後続処理・戻り値のため）
+      const logId = (rpcData as { log_id: string; success: boolean }).log_id
+      const { data: logData, error: logFetchErr } = await supabase
         .from('daily_logs')
-        .upsert(logRow, { onConflict: 'tenant_id,log_date' })
-        .select()
+        .select('*')
+        .eq('id', logId)
         .single()
-      if (logErr) throw new Error(logErr.message)
-      const log = logData as DailyLog
+      if (logFetchErr) throw new Error(logFetchErr.message)
 
-      // 在庫スナップショットを洗い替え
-      // フェーズ1: delete/insert失敗時のエラーメッセージを明確化
-      const { error: deleteErr } = await supabase
-        .from('daily_log_stocks')
-        .delete()
-        .eq('daily_log_id', log.id)
-      if (deleteErr) {
-        throw new Error(`在庫削除エラー: ${deleteErr.message}（日報は保存済み・要再送信）`)
-      }
-
-      if (stockRows.length > 0) {
-        const rows = stockRows.map((r) => ({
-          daily_log_id: log.id,
-          skewer_id: r.skewerId,
-          stock: r.stock,
-          is_kombu: r.is_kombu,
-        }))
-        const { error: stockErr } = await supabase.from('daily_log_stocks').insert(rows)
-        if (stockErr) {
-          // 在庫insert失敗時は明示的にエラーを投げる
-          // （日報は既に保存済み→部分成功状態をユーザーに通知）
-          throw new Error(`在庫保存エラー: ${stockErr.message}（日報は保存済み・在庫のみ再入力が必要）`)
-        }
-      }
-
-      return { log, stockRows }
+      return { log: logData as DailyLog, stockRows }
     } finally {
       submitting.value = false
     }
