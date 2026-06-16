@@ -33,8 +33,36 @@ AS $$
 DECLARE
   v_log_id uuid;
   v_stock_row jsonb;
+  v_current_tenant uuid;
+  v_current_role text;
 BEGIN
-  -- 1. daily_logs を upsert
+  -- セキュリティチェック: SECURITY DEFINERのため明示的に権限検証
+  v_current_tenant := public.current_tenant_id();
+  v_current_role := public.current_user_role();
+
+  -- 1. テナント越境チェック
+  IF p_tenant_id IS DISTINCT FROM v_current_tenant THEN
+    RAISE EXCEPTION 'テナント越境エラー: 異なるテナントのデータは操作できません (tenant_id: %, current: %)',
+      p_tenant_id, v_current_tenant;
+  END IF;
+
+  -- 2. ロール権限チェック（daily_logs INSERTポリシーと一致）
+  -- 現行ポリシー: INSERT WITH CHECK (tenant_id = current_tenant_id())
+  -- → ロール制限なし（全ロールが挿入可能）だが、念のため認証済みチェック
+  IF v_current_tenant IS NULL THEN
+    RAISE EXCEPTION '認証エラー: ログインが必要です';
+  END IF;
+
+  -- 3. 既存日報の上書き = 修正とみなし、権限者のみ許可
+  -- (新規INSERTは全ロール可。026のUPDATEポリシーと一致させる)
+  IF EXISTS (
+    SELECT 1 FROM daily_logs
+    WHERE tenant_id = p_tenant_id AND log_date = p_log_date
+  ) AND v_current_role NOT IN ('platform_admin', 'manager', 'store_owner') THEN
+    RAISE EXCEPTION '既存日報の修正権限がありません (role: %)', v_current_role;
+  END IF;
+
+  -- 4. daily_logs を upsert
   INSERT INTO daily_logs (
     tenant_id, log_date, day_of_week, staff_name, recorded_at,
     course_casual, course_standard, course_premium,
@@ -63,10 +91,10 @@ BEGIN
     guests_count = COALESCE(EXCLUDED.guests_count, daily_logs.guests_count)
   RETURNING id INTO v_log_id;
 
-  -- 2. daily_log_stocks を洗い替え（削除→挿入）
+  -- 5. daily_log_stocks を洗い替え（削除→挿入）
   DELETE FROM daily_log_stocks WHERE daily_log_id = v_log_id;
 
-  -- 3. 在庫行を挿入
+  -- 6. 在庫行を挿入
   FOR v_stock_row IN SELECT * FROM jsonb_array_elements(p_stock_rows)
   LOOP
     INSERT INTO daily_log_stocks (daily_log_id, skewer_id, stock, is_kombu)
@@ -78,7 +106,7 @@ BEGIN
     );
   END LOOP;
 
-  -- 4. 成功を返す
+  -- 7. 成功を返す
   RETURN jsonb_build_object(
     'log_id', v_log_id,
     'success', true
@@ -86,11 +114,14 @@ BEGIN
 END;
 $$;
 
--- RLS: この関数はSECURITY DEFINERで実行されるため、
--- 呼び出し側のcurrent_tenant_id()チェックは不要
--- ただし、p_tenant_idが正しいか確認する場合は追加可能
-
 COMMENT ON FUNCTION public.submit_daily_report IS
 '日次ログと在庫を原子的に保存するRPC。
+SECURITY DEFINER関数のため、冒頭でテナント越境チェックと認証チェックを実施。
 トランザクション内でdaily_logsのupsertとdaily_log_stocksの洗い替えを実行。
-両方成功または両方失敗（ロールバック）により、データ不整合を防ぐ。';
+両方成功または両方失敗（ロールバック）により、データ不整合を防ぐ。
+
+セキュリティ:
+- テナント越境: p_tenant_id != current_tenant_id() → EXCEPTION
+- 認証: current_tenant_id() IS NULL → EXCEPTION
+- 既存行UPDATE: 026のdaily_logs_update_store_ownerポリシーと一致（platform_admin/manager/store_owner）
+- 新規INSERT: 全ロール許可（認証済みのみ）';

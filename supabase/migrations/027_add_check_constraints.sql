@@ -8,6 +8,45 @@
 -- DevToolsやcurlで異常値を送信できてしまう
 
 -- ============================================================
+-- 適用前: 違反データ確認SELECT（手動実行）
+-- ============================================================
+
+-- 以下のクエリで既存データに制約違反が無いか確認すること:
+
+/*
+-- 売上が負数のレコード
+SELECT id, log_date, total_sales FROM daily_logs WHERE total_sales < 0;
+
+-- ドリンク売上が負数のレコード
+SELECT id, log_date, drink_sales FROM daily_logs WHERE drink_sales < 0;
+
+-- ドリンク比率が範囲外のレコード
+SELECT id, log_date, drink_ratio FROM daily_logs WHERE drink_ratio < 0 OR drink_ratio > 100;
+
+-- コース数が負数のレコード
+SELECT id, log_date, course_casual, course_standard, course_premium
+FROM daily_logs
+WHERE course_casual < 0 OR course_standard < 0 OR course_premium < 0;
+
+-- 串本数が負数のレコード
+SELECT id, log_date, extra_skewers, total_skewers
+FROM daily_logs
+WHERE extra_skewers < 0 OR total_skewers < 0;
+
+-- 組数・客数が負数のレコード
+SELECT id, log_date, groups_count, guests_count
+FROM daily_logs
+WHERE groups_count < 0 OR guests_count < 0;
+
+-- 予算金額が負数のレコード
+SELECT id, log_date, amount FROM daily_budgets WHERE amount < 0;
+
+-- 違反データがある場合は、ALTER TABLE前に修正すること:
+-- UPDATE daily_logs SET total_sales = 0 WHERE total_sales < 0;
+-- など
+*/
+
+-- ============================================================
 -- daily_logs: 数値範囲のCHECK制約
 -- ============================================================
 
