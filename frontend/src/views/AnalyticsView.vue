@@ -26,7 +26,7 @@ import {
 } from '@/composables/usePeriodRange'
 import { calcBudgetComparison } from '@/composables/useBudgetComparison'
 import { supabase } from '@/lib/supabase'
-import { ROLE_RANK } from '@/composables/useRoleRank'
+import { ROLE_RANK } from '@/lib/roleRank'
 import type { DailyLog, DailyBudget } from '@/types'
 import {
   ChevronLeft,

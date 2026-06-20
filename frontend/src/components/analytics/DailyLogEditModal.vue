@@ -33,16 +33,12 @@ const form = ref({
   guests_count: null as number | null,
   memo: '',
   weather_code: null as number | null,
-  temperature_max: null as number | null,
-  temperature_min: null as number | null,
+  temp_max: null as number | null,
 })
 
 const saving = ref(false)
 const errorMsg = ref('')
 const showConfirm = ref(false)
-
-// 天気フィールド（自動取得されるもの）
-const weatherFields = ['weather_code', 'temperature_max', 'temperature_min']
 
 // propsからformを初期化
 watch(() => props.log, (log) => {
@@ -59,11 +55,10 @@ watch(() => props.log, (log) => {
       total_sales: log.total_sales,
       drink_sales: log.drink_sales,
       drink_ratio: log.drink_ratio,
-      guests_count: log.guests_count,
+      guests_count: log.guests_count ?? null,
       memo: log.memo ?? '',
-      weather_code: log.weather_code,
-      temperature_max: log.temperature_max,
-      temperature_min: log.temperature_min,
+      weather_code: log.weather_code ?? null,
+      temp_max: log.temp_max ?? null,
     }
   }
 }, { immediate: true })
@@ -84,8 +79,7 @@ const hasChanges = computed(() => {
     form.value.guests_count !== props.log.guests_count ||
     form.value.memo !== (props.log.memo ?? '') ||
     form.value.weather_code !== props.log.weather_code ||
-    form.value.temperature_max !== props.log.temperature_max ||
-    form.value.temperature_min !== props.log.temperature_min
+    form.value.temp_max !== props.log.temp_max
   )
 })
 
@@ -111,7 +105,7 @@ async function save() {
 
   try {
     const tenantId = auth.effectiveTenantId
-    const userId = auth.userId
+    const userId = auth.authUser?.id
     if (!tenantId || !userId) throw new Error('認証情報が不正です')
 
     // 変更前の値を抽出
@@ -122,7 +116,7 @@ async function save() {
       'staff_name', 'course_casual', 'course_standard', 'course_premium',
       'extra_skewers', 'total_skewers', 'total_sales', 'drink_sales',
       'drink_ratio', 'guests_count', 'memo', 'weather_code',
-      'temperature_max', 'temperature_min'
+      'temp_max'
     ]
 
     fields.forEach(key => {
@@ -150,8 +144,7 @@ async function save() {
         guests_count: form.value.guests_count,
         memo: form.value.memo,
         weather_code: form.value.weather_code,
-        temperature_max: form.value.temperature_max,
-        temperature_min: form.value.temperature_min,
+        temp_max: form.value.temp_max,
       })
       .eq('id', props.log.id)
 
@@ -344,16 +337,7 @@ async function save() {
             <div>
               <label class="block text-xs text-neutral-400 mb-1">最高気温（℃）</label>
               <input
-                v-model.number="form.temperature_max"
-                type="number"
-                step="0.1"
-                class="w-full px-3 py-2 rounded-xl border border-edge dark:border-edge-dark bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white text-sm focus:border-brand-500 focus:ring-brand-500"
-              />
-            </div>
-            <div>
-              <label class="block text-xs text-neutral-400 mb-1">最低気温（℃）</label>
-              <input
-                v-model.number="form.temperature_min"
+                v-model.number="form.temp_max"
                 type="number"
                 step="0.1"
                 class="w-full px-3 py-2 rounded-xl border border-edge dark:border-edge-dark bg-white dark:bg-neutral-900 text-neutral-900 dark:text-white text-sm focus:border-brand-500 focus:ring-brand-500"

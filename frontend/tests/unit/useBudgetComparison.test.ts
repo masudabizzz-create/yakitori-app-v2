@@ -43,7 +43,6 @@ function makeBudget(over: Partial<DailyBudget> = {}): DailyBudget {
 }
 
 const mockPeriod: PeriodRange = {
-  scope: 'week',
   from: '2026-06-01',
   to: '2026-06-07',
   label: '2026-06-01 〜 2026-06-07',
