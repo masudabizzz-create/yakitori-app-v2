@@ -21,7 +21,7 @@ ALTER TABLE settings ADD COLUMN IF NOT EXISTS budget_presets jsonb DEFAULT '[
 -- --------------------
 -- daily_budgets（日別予算）
 -- --------------------
-CREATE TABLE daily_budgets (
+CREATE TABLE IF NOT EXISTS daily_budgets (
   id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id  uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   log_date   date NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE daily_budgets (
   UNIQUE (tenant_id, log_date)
 );
 
-CREATE INDEX idx_daily_budgets_tenant ON daily_budgets(tenant_id, log_date DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_budgets_tenant ON daily_budgets(tenant_id, log_date DESC);
 
 COMMENT ON TABLE daily_budgets IS '日別予算: 営業日は amount>0/is_closed=false、臨時休業は amount=0/is_closed=true、定休日は行なし';
 COMMENT ON COLUMN daily_budgets.is_closed IS '臨時休業フラグ（true=休業、false=営業）';
@@ -42,9 +42,11 @@ COMMENT ON COLUMN daily_budgets.is_closed IS '臨時休業フラグ（true=休�
 -- --------------------
 ALTER TABLE daily_budgets ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "daily_budgets_select" ON daily_budgets;
 CREATE POLICY "daily_budgets_select" ON daily_budgets
   FOR SELECT USING (tenant_id = public.current_tenant_id());
 
+DROP POLICY IF EXISTS "daily_budgets_write_store_owner" ON daily_budgets;
 CREATE POLICY "daily_budgets_write_store_owner" ON daily_budgets
   FOR ALL USING (
     tenant_id = public.current_tenant_id()

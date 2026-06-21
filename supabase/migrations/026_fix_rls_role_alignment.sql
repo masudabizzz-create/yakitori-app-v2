@@ -31,6 +31,7 @@
 DROP POLICY IF EXISTS "daily_logs_update_manager" ON daily_logs;
 
 -- 新ポリシー: store_owner以上に変更
+DROP POLICY IF EXISTS "daily_logs_update_store_owner" ON daily_logs;
 CREATE POLICY "daily_logs_update_store_owner" ON daily_logs
   FOR UPDATE USING (
     tenant_id = public.current_tenant_id()
@@ -48,6 +49,7 @@ DROP POLICY IF EXISTS "settings_write_admin" ON settings;
 -- 書き込みポリシー: INSERT/UPDATE/DELETEをstore_owner以上に変更
 
 -- INSERT: store_owner以上
+DROP POLICY IF EXISTS "settings_insert_store_owner" ON settings;
 CREATE POLICY "settings_insert_store_owner" ON settings
   FOR INSERT WITH CHECK (
     tenant_id = public.current_tenant_id()
@@ -55,6 +57,7 @@ CREATE POLICY "settings_insert_store_owner" ON settings
   );
 
 -- UPDATE: store_owner以上
+DROP POLICY IF EXISTS "settings_update_store_owner" ON settings;
 CREATE POLICY "settings_update_store_owner" ON settings
   FOR UPDATE USING (
     tenant_id = public.current_tenant_id()
@@ -66,6 +69,7 @@ CREATE POLICY "settings_update_store_owner" ON settings
   );
 
 -- DELETE: platform_adminのみ（安全のため）
+DROP POLICY IF EXISTS "settings_delete_admin" ON settings;
 CREATE POLICY "settings_delete_admin" ON settings
   FOR DELETE USING (
     tenant_id = public.current_tenant_id()
