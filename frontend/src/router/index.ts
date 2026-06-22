@@ -139,6 +139,8 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  // [DIAG] ナビゲーション開始タイマー
+  console.time(`nav:${String(to.name)}`)
 
   // セッション復元（初回のみ実行される）
   if (auth.loading) {
@@ -147,6 +149,7 @@ router.beforeEach(async (to) => {
 
   // 認証必須ルートに未認証でアクセス → ログインへ
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    console.timeEnd(`nav:${String(to.name)}`)
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
@@ -154,8 +157,11 @@ router.beforeEach(async (to) => {
   if (auth.isAuthenticated) {
     try {
       await auth.fetchAppUser()
+      // [DIAG] fetchAppUser 完了 → タイマー終了
+      console.timeEnd(`nav:${String(to.name)}`)
     } catch {
       // AuthApiError（Invalid Refresh Token など）→ 自動ログアウト
+      console.timeEnd(`nav:${String(to.name)}`)
       await auth.logout()
       return { name: 'login' }
     }

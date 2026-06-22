@@ -152,6 +152,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** users テーブルから自分のレコードを取得し、アクセス可能な店舗一覧も更新する。 */
   async function fetchAppUser(): Promise<void> {
+    // [DIAG] 呼び出し元のスタックフレームを記録（beforeEach経由 vs onAuthStateChange経由 の識別）
+    console.log('[DIAG] fetchAppUser start', new Error().stack?.split('\n')[2]?.trim())
     if (!authUser.value) return
     const { data, error } = await supabase
       .from('users')

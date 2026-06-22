@@ -320,6 +320,8 @@ onMounted(async () => {
 
     // ── Realtime 購読開始 ──────────────────────────────────────
     if (tenantId) {
+      // [DIAG] チャンネル登録ログ（リーク確認用）
+      console.log('[DIAG] Realtime subscribe start', `dashboard:${tenantId}`, 'total channels:', supabase.getChannels().length)
       realtimeChannel = supabase
         .channel(`dashboard:${tenantId}`)
         // prep_logs の変更 → 完了ステータスを即時更新
@@ -373,8 +375,13 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick)
   if (realtimeChannel) {
+    // [DIAG] チャンネル解除ログ（リーク確認用）
+    console.log('[DIAG] Realtime unsubscribe', realtimeChannel.topic, 'remaining after remove:', supabase.getChannels().length - 1)
     supabase.removeChannel(realtimeChannel)
     realtimeChannel = null
+  } else {
+    // [DIAG] unmount時にチャンネルがnull = async onMounted完了前にunmountされた可能性
+    console.log('[DIAG] Realtime unsubscribe skipped (channel was null at unmount)')
   }
 })
 </script>
