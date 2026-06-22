@@ -137,6 +137,26 @@ const router = createRouter({
   ],
 })
 
+/** appUser キャッシュ有効期限 (ms)。この時間内は DB 再取得をスキップする。 */
+const APPUSER_CACHE_TTL_MS = 60_000
+/** fetchAppUser のタイムアウト上限 (ms)。超過時はキャッシュで続行またはログインへ。 */
+const APPUSER_FETCH_TIMEOUT_MS = 8_000
+
+/**
+ * promise にタイムアウトを付与する。
+ * タイムアウト時は Error('timeout') で reject する。
+ * resolve/reject どちらの場合もタイマーをクリアして漏れを防ぐ。
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error('timeout')), ms)
+    promise.then(
+      (value) => { clearTimeout(timerId); resolve(value) },
+      (err)   => { clearTimeout(timerId); reject(err) },
+    )
+  })
+}
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   // [DIAG] ナビゲーション開始タイマー
@@ -153,18 +173,39 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
-  // is_active チェック: 毎ナビゲーションで退職者を再確認（stale キャッシュ対策）
+  // is_active チェック: 退職者を再確認。
+  // (a) 60秒キャッシュ: TTL 内であれば DB クエリをスキップして高速化する。
+  //     最大 60 秒の遅延で is_active=false を検出する（仕様上許容）。
+  // (b) 8秒タイムアウト: 取得が必要な場合も無限待ちにならないよう上限を設ける。
   if (auth.isAuthenticated) {
-    try {
-      await auth.fetchAppUser()
-      // [DIAG] fetchAppUser 完了 → タイマー終了
+    const needsFetch =
+      auth.appUserFetchedAt === null ||
+      Date.now() - auth.appUserFetchedAt >= APPUSER_CACHE_TTL_MS
+
+    if (needsFetch) {
+      try {
+        await withTimeout(auth.fetchAppUser(), APPUSER_FETCH_TIMEOUT_MS)
+        // [DIAG] fetchAppUser 完了 → タイマー終了
+        console.timeEnd(`nav:${String(to.name)}`)
+      } catch (err) {
+        console.timeEnd(`nav:${String(to.name)}`)
+        if ((err as Error).message === 'timeout') {
+          // タイムアウト: appUser があればキャッシュで続行、なければログインへ
+          console.warn('[DIAG] fetchAppUser timed out')
+          if (!auth.appUser) return { name: 'login' }
+          // appUser がある → そのまま通す（フリーズより優先）
+        } else {
+          // AuthApiError（Invalid Refresh Token など）→ 自動ログアウト
+          await auth.logout()
+          return { name: 'login' }
+        }
+      }
+    } else {
+      // [DIAG] キャッシュヒット → fetchAppUser スキップ
+      console.log(`[DIAG] nav:${String(to.name)} cache hit (${Date.now() - auth.appUserFetchedAt!}ms ago)`)
       console.timeEnd(`nav:${String(to.name)}`)
-    } catch {
-      // AuthApiError（Invalid Refresh Token など）→ 自動ログアウト
-      console.timeEnd(`nav:${String(to.name)}`)
-      await auth.logout()
-      return { name: 'login' }
     }
+
     if (auth.appUser?.is_active === false) {
       await auth.logout()
       return { name: 'login' }

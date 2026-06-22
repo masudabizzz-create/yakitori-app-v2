@@ -32,6 +32,8 @@ export const useAuthStore = defineStore('auth', () => {
   const activeTenantId = ref<string | undefined>(undefined)
   /** アクセス可能な全店舗一覧（RLS によって自動フィルタリング） */
   const accessibleTenants = ref<Tenant[]>([])
+  /** fetchAppUser() の最終正常完了時刻 (unix ms)。null = 未取得。 */
+  const appUserFetchedAt = ref<number | null>(null)
   // 初期化処理を共有 Promise として保持する（複数呼び出しを単一の完了に集約）
   let initPromise: Promise<void> | null = null
 
@@ -163,6 +165,9 @@ export const useAuthStore = defineStore('auth', () => {
     appUser.value = error ? null : (data as AppUser)
     // ユーザー情報確定後にアクセス可能店舗を取得する
     await fetchAccessibleTenants()
+    // (a) 60秒キャッシュ: DB クエリが正常完了した場合のみタイムスタンプを更新。
+    // エラー時は更新しない（次ナビゲーションで再試行させる）。
+    if (!error) appUserFetchedAt.value = Date.now()
   }
 
   /** アクセス可能な店舗一覧を取得する（RLS によって自動フィルタリング）。 */
@@ -308,6 +313,7 @@ export const useAuthStore = defineStore('auth', () => {
     activeTenantId,
     effectiveTenantId,
     accessibleTenants,
+    appUserFetchedAt,
     setActiveTenantId,
     enterTenant,
     updateHomeTenant,
