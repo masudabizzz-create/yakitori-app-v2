@@ -277,6 +277,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** ログアウトする。 */
   async function logout(): Promise<void> {
+    console.log('[DIAG-LOGOUT] logout() start, caller:', new Error().stack?.split('\n')[2]?.trim())
     // 監査ログ（signOut 前に記録: 後では auth.uid() が null になる）
     await insertAuditLog({
       tenantId: appUser.value?.tenant_id ?? null,
@@ -327,7 +328,9 @@ export const useAuthStore = defineStore('auth', () => {
   // is_active チェック: appUser が更新されるたびに reactive に確認する。
   // beforeEach での毎遷移チェックを廃止した代替。退職者は最大約1時間で締め出される（仕様許容）。
   watch(appUser, (user) => {
+    console.log('[DIAG-WATCH] appUser changed →', user?.is_active ?? '(null/undefined)')
     if (user?.is_active === false) {
+      console.log('[DIAG-WATCH] is_active=false detected, calling logout()')
       logout()
     }
   })

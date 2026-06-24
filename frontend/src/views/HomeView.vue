@@ -286,8 +286,11 @@ onMounted(() => {
 })
 
 async function handleLogout() {
+  console.log('[DIAG-LOGOUT] handleLogout called')
   await auth.logout()
+  console.log('[DIAG-LOGOUT] auth.logout() completed')
   router.push('/login')
+  console.log('[DIAG-LOGOUT] router.push called')
 }
 </script>
 
