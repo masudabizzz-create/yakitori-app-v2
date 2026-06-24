@@ -36,6 +36,8 @@ export const useAuthStore = defineStore('auth', () => {
   const appUserFetchedAt = ref<number | null>(null)
   // 初期化処理を共有 Promise として保持する（複数呼び出しを単一の完了に集約）
   let initPromise: Promise<void> | null = null
+  // in-flight の fetchAppUser() 呼び出しを集約する（dedup）
+  let fetchAppUserPromise: Promise<void> | null = null
 
   const isAuthenticated = computed(() => authUser.value !== null)
   const role = computed<UserRole | null>(() => appUser.value?.role ?? null)
@@ -153,21 +155,42 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /** users テーブルから自分のレコードを取得し、アクセス可能な店舗一覧も更新する。 */
-  async function fetchAppUser(): Promise<void> {
+  function fetchAppUser(): Promise<void> {
     // [DIAG] 呼び出し元のスタックフレームを記録（beforeEach経由 vs onAuthStateChange経由 の識別）
     console.log('[DIAG] fetchAppUser start', new Error().stack?.split('\n')[2]?.trim())
-    if (!authUser.value) return
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', authUser.value.id)
-      .single()
-    appUser.value = error ? null : (data as AppUser)
-    // ユーザー情報確定後にアクセス可能店舗を取得する
-    await fetchAccessibleTenants()
-    // (a) 60秒キャッシュ: DB クエリが正常完了した場合のみタイムスタンプを更新。
-    // エラー時は更新しない（次ナビゲーションで再試行させる）。
-    if (!error) appUserFetchedAt.value = Date.now()
+
+    // in-flight dedup: 進行中の Promise があれば新規クエリを発行せず共有する
+    if (fetchAppUserPromise) {
+      console.log('[DIAG] fetchAppUser dedup hit')
+      return fetchAppUserPromise
+    }
+
+    fetchAppUserPromise = (async () => {
+      if (!authUser.value) return
+      // [DIAG] users クエリの所要時間
+      console.time('fetchAppUser:users')
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.value.id)
+        .single()
+      console.timeEnd('fetchAppUser:users')
+      appUser.value = error ? null : (data as AppUser)
+
+      // [DIAG] tenants クエリの所要時間
+      console.time('fetchAppUser:tenants')
+      await fetchAccessibleTenants()
+      console.timeEnd('fetchAppUser:tenants')
+
+      // (a) 60秒キャッシュ: DB クエリが正常完了した場合のみタイムスタンプを更新。
+      // エラー時は更新しない（次ナビゲーションで再試行させる）。
+      if (!error) appUserFetchedAt.value = Date.now()
+    })().finally(() => {
+      // 完了（正常・エラー・ハング後のどの経路でも）必ず dedup ロックを解放する
+      fetchAppUserPromise = null
+    })
+
+    return fetchAppUserPromise
   }
 
   /** アクセス可能な店舗一覧を取得する（RLS によって自動フィルタリング）。 */
