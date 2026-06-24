@@ -279,17 +279,23 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout(): Promise<void> {
     console.log('[DIAG-LOGOUT] logout() start, caller:', new Error().stack?.split('\n')[2]?.trim())
     // 監査ログ（signOut 前に記録: 後では auth.uid() が null になる）
+    console.log('[DIAG-LOGOUT] 1: insertAuditLog 呼び出し前')
     await insertAuditLog({
       tenantId: appUser.value?.tenant_id ?? null,
       action: 'auth.logout',
       actorName: appUser.value?.name ?? null,
     })
+    console.log('[DIAG-LOGOUT] 2: insertAuditLog 完了')
+    console.log('[DIAG-LOGOUT] 3: supabase.auth.signOut() 呼び出し前')
     await supabase.auth.signOut()
+    console.log('[DIAG-LOGOUT] 4: supabase.auth.signOut() 完了')
+    console.log('[DIAG-LOGOUT] 5: ステートクリア前')
     authUser.value = null
     appUser.value = null
     activeTenantId.value = undefined
     accessibleTenants.value = []
     localStorage.removeItem(ACTIVE_TENANT_KEY)
+    console.log('[DIAG-LOGOUT] 6: ステートクリア完了 / logout() 終了')
   }
 
   /** ログイン中ユーザー自身のパスワードを変更する（Supabase Auth）。 */
