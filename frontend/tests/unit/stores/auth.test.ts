@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
+import { nextTick } from 'vue'
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js'
+import type { AppUser } from '@/types'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Supabase モック
 // hoisted() でモック関数を先に定義し、vi.mock のファクトリから参照する。
 // ────────────────────────────────────────────────────────────────────────────
-const { mockUsersQuery, mockTenantsQuery, mockFrom } = vi.hoisted(() => {
+const { mockUsersQuery, mockTenantsQuery, mockFrom, mockSignOut } = vi.hoisted(() => {
   const mockUsersQuery = vi.fn()
   const mockTenantsQuery = vi.fn()
+  const mockSignOut = vi.fn().mockResolvedValue({ error: null })
   const mockFrom = vi.fn((table: string) => {
     if (table === 'users') {
       return { select: () => ({ eq: () => ({ single: mockUsersQuery }) }) }
@@ -16,7 +19,7 @@ const { mockUsersQuery, mockTenantsQuery, mockFrom } = vi.hoisted(() => {
     // tenants テーブル
     return { select: () => ({ order: mockTenantsQuery }) }
   })
-  return { mockUsersQuery, mockTenantsQuery, mockFrom }
+  return { mockUsersQuery, mockTenantsQuery, mockFrom, mockSignOut }
 })
 
 vi.mock('@/lib/supabase', () => ({
@@ -26,6 +29,7 @@ vi.mock('@/lib/supabase', () => ({
       onAuthStateChange: vi.fn().mockReturnValue({
         data: { subscription: { unsubscribe: vi.fn() } },
       }),
+      signOut: mockSignOut,
     },
     from: mockFrom,
   },
@@ -121,6 +125,55 @@ describe('useAuthStore — appUserFetchedAt キャッシュ', () => {
 
     expect(auth.appUserFetchedAt).toBeNull()
     expect(mockFrom).not.toHaveBeenCalled()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// is_active watcher（auth ストア内の watch(appUser, ...) の挙動を検証）
+// ────────────────────────────────────────────────────────────────────────────
+describe('useAuthStore — is_active watcher', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockSignOut.mockReset()
+  })
+
+  it('appUser.is_active が false になると logout（signOut）が呼ばれる', async () => {
+    const auth = useAuthStore()
+    auth.authUser = { id: 'u1' } as unknown as SupabaseAuthUser
+
+    // まず active=true でセットしてウォッチャーを起動させる
+    auth.appUser = { id: 'u1', is_active: true } as unknown as AppUser
+    await nextTick()
+
+    // is_active を false に変更 → ウォッチャーが logout() を起動
+    auth.appUser = { id: 'u1', is_active: false } as unknown as AppUser
+    await nextTick()
+    // logout() は非同期（insertAuditLog → signOut）なので追加で待つ
+    await vi.waitFor(() => expect(mockSignOut).toHaveBeenCalled())
+  })
+
+  it('appUser.is_active が true のままなら logout は呼ばれない', async () => {
+    const auth = useAuthStore()
+    auth.authUser = { id: 'u1' } as unknown as SupabaseAuthUser
+
+    auth.appUser = { id: 'u1', is_active: true } as unknown as AppUser
+    await nextTick()
+    auth.appUser = { id: 'u1', is_active: true, name: 'updated' } as unknown as AppUser
+    await nextTick()
+
+    expect(mockSignOut).not.toHaveBeenCalled()
+  })
+
+  it('appUser が null になっても logout は呼ばれない', async () => {
+    const auth = useAuthStore()
+    auth.authUser = { id: 'u1' } as unknown as SupabaseAuthUser
+
+    auth.appUser = { id: 'u1', is_active: true } as unknown as AppUser
+    await nextTick()
+    auth.appUser = null
+    await nextTick()
+
+    expect(mockSignOut).not.toHaveBeenCalled()
   })
 })
 

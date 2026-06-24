@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { insertAuditLog } from '@/lib/audit'
@@ -323,6 +323,14 @@ export const useAuthStore = defineStore('auth', () => {
       appUser.value = { ...appUser.value, tenant_id: tenantId }
     }
   }
+
+  // is_active チェック: appUser が更新されるたびに reactive に確認する。
+  // beforeEach での毎遷移チェックを廃止した代替。退職者は最大約1時間で締め出される（仕様許容）。
+  watch(appUser, (user) => {
+    if (user?.is_active === false) {
+      logout()
+    }
+  })
 
   return {
     authUser,
