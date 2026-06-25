@@ -115,6 +115,20 @@ export const useAuthStore = defineStore('auth', () => {
           appUser.value = null
           activeTenantId.value = undefined
           accessibleTenants.value = []
+          if (event === 'SIGNED_OUT') {
+            // ログアウト後の /login 遷移を一元化。
+            // router → auth.ts の循環参照を dynamic import で回避。
+            // @/router = src/router/index.ts（alias 確認済み）
+            import('@/router')
+              .then(({ default: r }) => {
+                if (r.currentRoute.value.name !== 'login') {
+                  r.push('/login')
+                }
+              })
+              .catch((e: unknown) => {
+                console.warn('[auth] SIGNED_OUT: /login への遷移に失敗（続行）', e)
+              })
+          }
         }
       })
     })()
@@ -278,14 +292,21 @@ export const useAuthStore = defineStore('auth', () => {
   /** ログアウトする。 */
   async function logout(): Promise<void> {
     console.log('[DIAG-LOGOUT] logout() start, caller:', new Error().stack?.split('\n')[2]?.trim())
-    // 監査ログ（signOut 前に記録: 後では auth.uid() が null になる）
+    // 監査ログ（ベストエフォート: タイムアウト・失敗しても signOut 以降に必ず進む）
     console.log('[DIAG-LOGOUT] 1: insertAuditLog 呼び出し前')
-    await insertAuditLog({
-      tenantId: appUser.value?.tenant_id ?? null,
-      action: 'auth.logout',
-      actorName: appUser.value?.name ?? null,
-    })
-    console.log('[DIAG-LOGOUT] 2: insertAuditLog 完了')
+    try {
+      await _withTimeout(
+        insertAuditLog({
+          tenantId: appUser.value?.tenant_id ?? null,
+          action: 'auth.logout',
+          actorName: appUser.value?.name ?? null,
+        }),
+        3_000,
+      )
+      console.log('[DIAG-LOGOUT] 2: insertAuditLog 完了')
+    } catch (e) {
+      console.warn('[DIAG-LOGOUT] 2: insertAuditLog 失敗/タイムアウト（続行）', e)
+    }
     console.log('[DIAG-LOGOUT] 3: supabase.auth.signOut() 呼び出し前')
     await supabase.auth.signOut()
     console.log('[DIAG-LOGOUT] 4: supabase.auth.signOut() 完了')
@@ -365,6 +386,20 @@ export const useAuthStore = defineStore('auth', () => {
     updatePassword,
   }
 })
+
+/**
+ * Promise にタイムアウトを設ける。ms 経過で reject する。
+ * logout() の insertAuditLog（ベストエフォート）専用。
+ */
+function _withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms)
+    promise.then(
+      (value) => { clearTimeout(timerId); resolve(value) },
+      (err: unknown) => { clearTimeout(timerId); reject(err) },
+    )
+  })
+}
 
 /** Supabase Auth のエラーメッセージを日本語化する。 */
 function translateAuthError(message: string): string {

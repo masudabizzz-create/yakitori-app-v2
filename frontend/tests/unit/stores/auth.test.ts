@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { nextTick } from 'vue'
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js'
@@ -40,6 +40,7 @@ vi.mock('@/lib/audit', () => ({
 }))
 
 import { useAuthStore } from '@/stores/auth'
+import { insertAuditLog } from '@/lib/audit'
 
 // ────────────────────────────────────────────────────────────────────────────
 // テスト用フィクスチャ
@@ -174,6 +175,50 @@ describe('useAuthStore — is_active watcher', () => {
     await nextTick()
 
     expect(mockSignOut).not.toHaveBeenCalled()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// logout() の堅牢化（insertAuditLog ベストエフォート）
+// ────────────────────────────────────────────────────────────────────────────
+describe('useAuthStore — logout() の堅牢化', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockSignOut.mockReset()
+    vi.mocked(insertAuditLog).mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('insertAuditLog がタイムアウト（3秒超）しても signOut が呼ばれる', async () => {
+    vi.useFakeTimers()
+    // insertAuditLog が永遠に解決しないPromise（ハングシミュレーション）
+    vi.mocked(insertAuditLog).mockReturnValue(new Promise<void>(() => { /* never */ }))
+    mockSignOut.mockResolvedValue({ error: null })
+
+    const auth = useAuthStore()
+    auth.authUser = { id: 'u1' } as unknown as SupabaseAuthUser
+
+    const logoutPromise = auth.logout()
+    // 3秒タイムアウトを超過させる
+    await vi.advanceTimersByTimeAsync(3_100)
+    await logoutPromise
+
+    expect(mockSignOut).toHaveBeenCalled()
+  })
+
+  it('insertAuditLog が即座に失敗しても signOut が呼ばれる', async () => {
+    vi.mocked(insertAuditLog).mockRejectedValue(new Error('audit error'))
+    mockSignOut.mockResolvedValue({ error: null })
+
+    const auth = useAuthStore()
+    auth.authUser = { id: 'u1' } as unknown as SupabaseAuthUser
+
+    await auth.logout()
+
+    expect(mockSignOut).toHaveBeenCalled()
   })
 })
 
