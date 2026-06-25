@@ -139,8 +139,6 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  // [DIAG] ナビゲーション開始タイマー
-  console.time(`nav:${String(to.name)}`)
 
   // セッション復元（初回のみ実行される。fetchAppUser もここで完了する）
   if (auth.loading) {
@@ -149,7 +147,6 @@ router.beforeEach(async (to) => {
 
   // 認証必須ルートに未認証でアクセス → ログインへ
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    console.timeEnd(`nav:${String(to.name)}`)
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
@@ -184,7 +181,6 @@ router.beforeEach(async (to) => {
     return { name: 'home' }
   }
 
-  console.timeEnd(`nav:${String(to.name)}`)
   document.title = to.meta.title ? `${to.meta.title} | 串在庫管理` : '串在庫管理'
 })
 

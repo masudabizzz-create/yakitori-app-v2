@@ -170,31 +170,21 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** users テーブルから自分のレコードを取得し、アクセス可能な店舗一覧も更新する。 */
   function fetchAppUser(): Promise<void> {
-    // [DIAG] 呼び出し元のスタックフレームを記録（beforeEach経由 vs onAuthStateChange経由 の識別）
-    console.log('[DIAG] fetchAppUser start', new Error().stack?.split('\n')[2]?.trim())
-
     // in-flight dedup: 進行中の Promise があれば新規クエリを発行せず共有する
     if (fetchAppUserPromise) {
-      console.log('[DIAG] fetchAppUser dedup hit')
       return fetchAppUserPromise
     }
 
     fetchAppUserPromise = (async () => {
       if (!authUser.value) return
-      // [DIAG] users クエリの所要時間
-      console.time('fetchAppUser:users')
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('id', authUser.value.id)
         .single()
-      console.timeEnd('fetchAppUser:users')
       appUser.value = error ? null : (data as AppUser)
 
-      // [DIAG] tenants クエリの所要時間
-      console.time('fetchAppUser:tenants')
       await fetchAccessibleTenants()
-      console.timeEnd('fetchAppUser:tenants')
 
       // (a) 60秒キャッシュ: DB クエリが正常完了した場合のみタイムスタンプを更新。
       // エラー時は更新しない（次ナビゲーションで再試行させる）。
@@ -291,9 +281,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** ログアウトする。 */
   async function logout(): Promise<void> {
-    console.log('[DIAG-LOGOUT] logout() start, caller:', new Error().stack?.split('\n')[2]?.trim())
     // 監査ログ（ベストエフォート: タイムアウト・失敗しても signOut 以降に必ず進む）
-    console.log('[DIAG-LOGOUT] 1: insertAuditLog 呼び出し前')
     try {
       await _withTimeout(
         insertAuditLog({
@@ -303,20 +291,15 @@ export const useAuthStore = defineStore('auth', () => {
         }),
         3_000,
       )
-      console.log('[DIAG-LOGOUT] 2: insertAuditLog 完了')
     } catch (e) {
-      console.warn('[DIAG-LOGOUT] 2: insertAuditLog 失敗/タイムアウト（続行）', e)
+      console.warn('[auth] insertAuditLog 失敗/タイムアウト（続行）', e)
     }
-    console.log('[DIAG-LOGOUT] 3: supabase.auth.signOut() 呼び出し前')
     await supabase.auth.signOut()
-    console.log('[DIAG-LOGOUT] 4: supabase.auth.signOut() 完了')
-    console.log('[DIAG-LOGOUT] 5: ステートクリア前')
     authUser.value = null
     appUser.value = null
     activeTenantId.value = undefined
     accessibleTenants.value = []
     localStorage.removeItem(ACTIVE_TENANT_KEY)
-    console.log('[DIAG-LOGOUT] 6: ステートクリア完了 / logout() 終了')
   }
 
   /** ログイン中ユーザー自身のパスワードを変更する（Supabase Auth）。 */
@@ -355,9 +338,7 @@ export const useAuthStore = defineStore('auth', () => {
   // is_active チェック: appUser が更新されるたびに reactive に確認する。
   // beforeEach での毎遷移チェックを廃止した代替。退職者は最大約1時間で締め出される（仕様許容）。
   watch(appUser, (user) => {
-    console.log('[DIAG-WATCH] appUser changed →', user?.is_active ?? '(null/undefined)')
     if (user?.is_active === false) {
-      console.log('[DIAG-WATCH] is_active=false detected, calling logout()')
       logout()
     }
   })
