@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { User as SupabaseAuthUser } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { insertAuditLog } from '@/lib/audit'
@@ -32,8 +32,12 @@ export const useAuthStore = defineStore('auth', () => {
   const activeTenantId = ref<string | undefined>(undefined)
   /** アクセス可能な全店舗一覧（RLS によって自動フィルタリング） */
   const accessibleTenants = ref<Tenant[]>([])
+  /** fetchAppUser() の最終正常完了時刻 (unix ms)。null = 未取得。 */
+  const appUserFetchedAt = ref<number | null>(null)
   // 初期化処理を共有 Promise として保持する（複数呼び出しを単一の完了に集約）
   let initPromise: Promise<void> | null = null
+  // in-flight の fetchAppUser() 呼び出しを集約する（dedup）
+  let fetchAppUserPromise: Promise<void> | null = null
 
   const isAuthenticated = computed(() => authUser.value !== null)
   const role = computed<UserRole | null>(() => appUser.value?.role ?? null)
@@ -111,6 +115,20 @@ export const useAuthStore = defineStore('auth', () => {
           appUser.value = null
           activeTenantId.value = undefined
           accessibleTenants.value = []
+          if (event === 'SIGNED_OUT') {
+            // ログアウト後の /login 遷移を一元化。
+            // router → auth.ts の循環参照を dynamic import で回避。
+            // @/router = src/router/index.ts（alias 確認済み）
+            import('@/router')
+              .then(({ default: r }) => {
+                if (r.currentRoute.value.name !== 'login') {
+                  r.push('/login')
+                }
+              })
+              .catch((e: unknown) => {
+                console.warn('[auth] SIGNED_OUT: /login への遷移に失敗（続行）', e)
+              })
+          }
         }
       })
     })()
@@ -151,16 +169,32 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /** users テーブルから自分のレコードを取得し、アクセス可能な店舗一覧も更新する。 */
-  async function fetchAppUser(): Promise<void> {
-    if (!authUser.value) return
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', authUser.value.id)
-      .single()
-    appUser.value = error ? null : (data as AppUser)
-    // ユーザー情報確定後にアクセス可能店舗を取得する
-    await fetchAccessibleTenants()
+  function fetchAppUser(): Promise<void> {
+    // in-flight dedup: 進行中の Promise があれば新規クエリを発行せず共有する
+    if (fetchAppUserPromise) {
+      return fetchAppUserPromise
+    }
+
+    fetchAppUserPromise = (async () => {
+      if (!authUser.value) return
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUser.value.id)
+        .single()
+      appUser.value = error ? null : (data as AppUser)
+
+      await fetchAccessibleTenants()
+
+      // (a) 60秒キャッシュ: DB クエリが正常完了した場合のみタイムスタンプを更新。
+      // エラー時は更新しない（次ナビゲーションで再試行させる）。
+      if (!error) appUserFetchedAt.value = Date.now()
+    })().finally(() => {
+      // 完了（正常・エラー・ハング後のどの経路でも）必ず dedup ロックを解放する
+      fetchAppUserPromise = null
+    })
+
+    return fetchAppUserPromise
   }
 
   /** アクセス可能な店舗一覧を取得する（RLS によって自動フィルタリング）。 */
@@ -247,12 +281,19 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** ログアウトする。 */
   async function logout(): Promise<void> {
-    // 監査ログ（signOut 前に記録: 後では auth.uid() が null になる）
-    await insertAuditLog({
-      tenantId: appUser.value?.tenant_id ?? null,
-      action: 'auth.logout',
-      actorName: appUser.value?.name ?? null,
-    })
+    // 監査ログ（ベストエフォート: タイムアウト・失敗しても signOut 以降に必ず進む）
+    try {
+      await _withTimeout(
+        insertAuditLog({
+          tenantId: appUser.value?.tenant_id ?? null,
+          action: 'auth.logout',
+          actorName: appUser.value?.name ?? null,
+        }),
+        3_000,
+      )
+    } catch (e) {
+      console.warn('[auth] insertAuditLog 失敗/タイムアウト（続行）', e)
+    }
     await supabase.auth.signOut()
     authUser.value = null
     appUser.value = null
@@ -294,6 +335,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // is_active チェック: appUser が更新されるたびに reactive に確認する。
+  // beforeEach での毎遷移チェックを廃止した代替。退職者は最大約1時間で締め出される（仕様許容）。
+  watch(appUser, (user) => {
+    if (user?.is_active === false) {
+      logout()
+    }
+  })
+
   return {
     authUser,
     appUser,
@@ -306,6 +355,7 @@ export const useAuthStore = defineStore('auth', () => {
     activeTenantId,
     effectiveTenantId,
     accessibleTenants,
+    appUserFetchedAt,
     setActiveTenantId,
     enterTenant,
     updateHomeTenant,
@@ -317,6 +367,20 @@ export const useAuthStore = defineStore('auth', () => {
     updatePassword,
   }
 })
+
+/**
+ * Promise にタイムアウトを設ける。ms 経過で reject する。
+ * logout() の insertAuditLog（ベストエフォート）専用。
+ */
+function _withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timerId = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms)
+    promise.then(
+      (value) => { clearTimeout(timerId); resolve(value) },
+      (err: unknown) => { clearTimeout(timerId); reject(err) },
+    )
+  })
+}
 
 /** Supabase Auth のエラーメッセージを日本語化する。 */
 function translateAuthError(message: string): string {

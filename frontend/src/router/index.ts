@@ -140,7 +140,7 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
 
-  // セッション復元（初回のみ実行される）
+  // セッション復元（初回のみ実行される。fetchAppUser もここで完了する）
   if (auth.loading) {
     await auth.initialize()
   }
@@ -148,21 +148,6 @@ router.beforeEach(async (to) => {
   // 認証必須ルートに未認証でアクセス → ログインへ
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } }
-  }
-
-  // is_active チェック: 毎ナビゲーションで退職者を再確認（stale キャッシュ対策）
-  if (auth.isAuthenticated) {
-    try {
-      await auth.fetchAppUser()
-    } catch {
-      // AuthApiError（Invalid Refresh Token など）→ 自動ログアウト
-      await auth.logout()
-      return { name: 'login' }
-    }
-    if (auth.appUser?.is_active === false) {
-      await auth.logout()
-      return { name: 'login' }
-    }
   }
 
   // 認証済みでログイン画面へ → 店舗選択 or ホームへ
@@ -187,6 +172,7 @@ router.beforeEach(async (to) => {
   }
 
   // ロールチェック: allowedRoles が設定されていて該当しない → ホームへ
+  // is_active チェックは auth ストアの watch(appUser) で reactive に担保している
   if (
     to.meta.allowedRoles &&
     auth.role !== null &&
