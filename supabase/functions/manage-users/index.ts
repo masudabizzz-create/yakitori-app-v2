@@ -583,7 +583,9 @@ Deno.serve(async (req) => {
   // create_tenant — 新店舗を作成
   // ============================================================
   if (action === 'create_tenant') {
-    if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
+    if (callerRole !== 'platform_admin') {
+      return json(403, { error: 'この操作にはプラットフォーム管理者権限が必要です' })
+    }
     const { name, primary_color } = payload
     if (!name) return json(400, { error: 'name は必須です' })
 
@@ -624,7 +626,9 @@ Deno.serve(async (req) => {
   // update_tenant — 店舗名・テーマカラーを更新
   // ============================================================
   if (action === 'update_tenant') {
-    if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
+    if (callerRole !== 'platform_admin') {
+      return json(403, { error: 'この操作にはプラットフォーム管理者権限が必要です' })
+    }
     const { tenant_id, name, primary_color, latitude, longitude } = payload
     if (!tenant_id || !name) {
       return json(400, { error: 'tenant_id と name は必須です' })
@@ -658,7 +662,9 @@ Deno.serve(async (req) => {
   // delete_tenant — 店舗を削除
   // ============================================================
   if (action === 'delete_tenant') {
-    if (!isAdmin) return json(403, { error: '管理者権限が必要です' })
+    if (callerRole !== 'platform_admin') {
+      return json(403, { error: 'この操作にはプラットフォーム管理者権限が必要です' })
+    }
     const { tenant_id } = payload
     if (!tenant_id) return json(400, { error: 'tenant_id は必須です' })
 
