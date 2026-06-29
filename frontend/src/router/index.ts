@@ -131,6 +131,16 @@ const router = createRouter({
       meta: { requiresAuth: true, title: '店舗を選択' },
     },
     {
+      path: '/platform',
+      name: 'platform-console',
+      component: () => import('@/views/PlatformConsoleView.vue'),
+      meta: {
+        requiresAuth: true,
+        allowedRoles: ['platform_admin'],
+        title: 'プラットフォーム管理',
+      },
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/',
     },
